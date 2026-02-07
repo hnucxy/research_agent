@@ -1,0 +1,19 @@
+# 忽略所有环境变量配置文件
+.env
+.env.local
+.env.*.local
+
+# 特例：允许追踪 .env.example
+!.env.example
+
+# 忽略 Python 缓存和虚拟环境
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# 忽略 IDE 配置
+.vscode/
+.idea/
