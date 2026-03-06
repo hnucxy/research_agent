@@ -4,7 +4,8 @@ from .base import BaseTool
 
 class ArxivSearchTool(BaseTool):
     name = "arxiv_search"
-    description = "用于搜索 arXiv 上的科研论文。输入参数为搜索关键词。"
+    # description = "用于搜索 arXiv 上的科研论文。输入参数为搜索关键词。"
+    description = "用于搜索 arXiv 上的科研论文。输入参数必须是提炼后的【英文】搜索关键词（如: LLM AND medical diagnosis），不要输入长句或中文。"
 
     def run(self, query: str) -> str:
         print(f"    [Tool] 正在访问 arXiv 搜索: {query} ...")
@@ -23,7 +24,8 @@ class ArxivSearchTool(BaseTool):
                     f"Title: {r.title}\n"
                     f"Authors: {', '.join([a.name for a in r.authors])}\n"
                     f"Published: {r.published.date()}\n"
-                    f"Summary: {r.summary[:200]}...\n"  # 截断摘要
+                    # f"Summary: {r.summary[:200]}...\n"  # 截断摘要
+                    f"Summary: {r.summary}\n"
                     f"URL: {r.entry_id}\n"
                     "---"
                 )

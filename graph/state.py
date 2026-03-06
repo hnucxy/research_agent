@@ -15,6 +15,9 @@ class AgentState(TypedDict):
     # [CoT] 任务规划列表 (结构化)
     plan: List[str]
 
+    # [新增] Planner 为每个步骤分配的工具名称列表。长度必须与 plan 保持一致。
+    planned_tools: List[str]
+
     # 当前正在执行的步骤索引
     current_step_index: int
 

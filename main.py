@@ -12,8 +12,19 @@ def main():
     print(">>> 初始化科研 Agent (DeepSeek Kernel)...")
     app = build_graph()
 
+    # from IPython.display import Image, display
+    # 获取生成的 PNG 字节数据
+    # png_bytes = app.get_graph().draw_mermaid_png()
+    #
+    # # 将字节数据写入到本地文件
+    # with open("graph_workflow.png", "wb") as f:
+    #     f.write(png_bytes)
+    #
+    # print(">>> 流程图已成功保存为 graph_workflow.png")
+
     # 你指定的 User Query
-    user_query = "请帮我调研最近3个月关于 LLM 在医学诊断领域应用的论文，并总结主要方法。"
+    user_query = "请帮我调研最近3个月关于 LLM 在医学诊断领域应用的论文，并总结主要方法。现在是2026年3月。"
+    # user_query = "请帮我调研最近关于强化学习(Reinforcement Learning)在自动驾驶(Autonomous Driving)领域应用的3篇最新论文，并总结它们的主要方法。"
 
     initial_state = {
         "task_input": user_query,
