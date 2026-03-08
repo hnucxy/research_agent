@@ -8,7 +8,11 @@ from agents.evaluator import EvaluatorNode
 
 # 定义一个简单的状态更新函数，用来让步骤 +1
 def step_updater(state: AgentState):
-    return {"current_step_index": state["current_step_index"] + 1}
+    return {
+        "current_step_index": state["current_step_index"] + 1,
+        "retry_count": 0,
+        "evaluation_result": {} #清空上一次的评估
+    }
 
 
 def build_graph():
@@ -18,7 +22,7 @@ def build_graph():
     workflow.add_node("planner", PlannerNode())
     workflow.add_node("executor", ExecutorNode())
     workflow.add_node("evaluator", EvaluatorNode())
-    workflow.add_node("update_step", step_updater)  # 新增：负责翻页
+    workflow.add_node("update_step", step_updater)  # 负责翻页
 
     # 2. 定义入口
     workflow.set_entry_point("planner")
@@ -29,8 +33,32 @@ def build_graph():
     # 执行 -> 评估
     workflow.add_edge("executor", "evaluator")
     # 评估 -> 更新步骤索引
-    workflow.add_edge("evaluator", "update_step")
+    # workflow.add_edge("evaluator", "update_step")
 
+
+    def check_evaluation(state: AgentState):
+        result = state.get("evaluation_result", {})
+        retry_count = state.get("retry_count", 0)
+
+        # 防死循环：如果重试超过 3 次，强制认为通过（或转向专门的人工介入/放弃节点）
+        if retry_count >= 3:
+            print("    [System] 重试次数达上限，强制放行。")
+            return "pass"
+
+        if result.get("passed") is True:
+            return "pass"
+        else:
+            print("    [System] 评估未通过，触发 Self-Refine 回退 Executor重试。")
+            return "retry"
+
+    workflow.add_conditional_edges(
+        "evaluator",
+        check_evaluation,
+        {
+            "pass": "update_step",  # 成功则更新索引
+            "retry": "executor"  # 失败则回到 executor 执行重试
+        }
+    )
     # 4. 定义条件边 (循环逻辑)
     # 决定是 "继续下一步" 还是 "结束"
     def check_loop(state: AgentState):
@@ -44,6 +72,8 @@ def build_graph():
         else:
             return "end"
 
+
+
     workflow.add_conditional_edges(
         "update_step",
         check_loop,
@@ -52,6 +82,8 @@ def build_graph():
             "end": END  # 结束
         }
     )
+
+
 
     return workflow.compile()
 

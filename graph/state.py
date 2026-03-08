@@ -18,6 +18,9 @@ class AgentState(TypedDict):
     # [新增] Planner 为每个步骤分配的工具名称列表。长度必须与 plan 保持一致。
     planned_tools: List[str]
 
+    #[Self-Refine] 当前步骤的重试次数，防止无限重试死循环
+    retry_count: int
+
     # 当前正在执行的步骤索引
     current_step_index: int
 

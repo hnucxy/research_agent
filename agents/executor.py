@@ -18,6 +18,11 @@ class ExecutorNode:
         print("\n--- [Executor] Node ---")
         current_index = state["current_step_index"]
         current_step = state["plan"][current_index]
+        feedback = ""
+        # 检查是否是重试循环
+        eval_res = state.get("evaluation_result")
+        if eval_res and not  eval_res.get("passed"):
+            feedback = f"\n【⚠️上一次执行未通过，评估专家给出的修正建议】: {eval_res.get('feedback')}\n请务必参考此建议调整本次的工具参数或生成逻辑！"
         tool_name = state["planned_tools"][current_index]
 
         print(f"正在执行步骤: {current_step}")
@@ -47,6 +52,7 @@ class ExecutorNode:
             【目标工具功能】: {tool_desc}
             【当前任务描述】: {current_step}
             【已有上下文信息】: {context if context else "无"}
+            {feedback} # <---注入反馈
 
             要求：
             1. 仔细阅读工具功能，理解该工具需要什么类型的输入（如：搜索关键词、数学表达式、Python代码等）。
