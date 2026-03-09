@@ -1,6 +1,9 @@
+from langchain_core.prompts import ChatPromptTemplate
+
 from config.settings import Settings
 from graph.state import AgentState
 from tools.arxiv_tool import ArxivSearchTool
+from prompts.executor_prompts import TOOL_EXTRACTION_PROMPT,TEXT_GENERATION_PROMPT
 
 
 class ExecutorNode:
@@ -18,16 +21,21 @@ class ExecutorNode:
         print("\n--- [Executor] Node ---")
         current_index = state["current_step_index"]
         current_step = state["plan"][current_index]
+        tool_name = state["planned_tools"][current_index]
+
+        #处理反馈信息
         feedback = ""
         # 检查是否是重试循环
         eval_res = state.get("evaluation_result")
         if eval_res and not  eval_res.get("passed"):
             feedback = f"\n【⚠️上一次执行未通过，评估专家给出的修正建议】: {eval_res.get('feedback')}\n请务必参考此建议调整本次的工具参数或生成逻辑！"
-        tool_name = state["planned_tools"][current_index]
+
 
         print(f"正在执行步骤: {current_step}")
-        context = "\n".join(state.get("step_history", []))
-        output = ""
+        context_raw = "\n".join(state.get("step_history", []))
+        # 预处理上下文
+        context_str = context_raw if context_raw else "无"
+        # output = ""
 
         # ==========================================
         # 通用路由与执行逻辑
@@ -43,25 +51,19 @@ class ExecutorNode:
             # 工具类有 description 属性（这是编写 Agent 工具的标准规范）
             tool_desc = getattr(tool, "description", "执行特定任务的工具")
 
-            # 这是一个通用的参数提取 Prompt
-            extract_prompt = f"""
-            你是一个工具参数提取助手。请根据【全局用户任务】和【当前执行步骤】，为指定的工具提取或生成合适的输入参数。
+            # [工程规范修改点]：使用 ChatPromptTemplate 组装链 (Chain)
+            prompt_template = ChatPromptTemplate.from_template(TOOL_EXTRACTION_PROMPT)
+            chain = prompt_template | self.llm
 
-            【全局用户任务】: {original_task}
-            【目标工具名称】: {tool_name}
-            【目标工具功能】: {tool_desc}
-            【当前任务描述】: {current_step}
-            【已有上下文信息】: {context if context else "无"}
-            {feedback} # <---注入反馈
-
-            要求：
-            1. 仔细阅读工具功能，理解该工具需要什么类型的输入（如：搜索关键词、数学表达式、Python代码等）。
-            2. 根据任务描述和全局用户任务，推导出该工具需要的具体参数。
-            3. 如果是调用文献检索工具（如arxiv_search），提取的关键词应尽量精简并使用双引号确保精确匹配（例如：\"reinforcement learning\" AND \"autonomous driving\"），不要包含年份或“最近3个月”等宽泛的自然语言时间词，这会导致检索引擎混乱。
-            4. 请直接输出该参数字符串，绝对不要包含任何解释文字、前缀或 Markdown 代码块标记。
-            """
-
-            query_res = self.llm.invoke(extract_prompt)
+            # 动态传入变量字典（参数）
+            query_res = chain.invoke({
+                "original_task": original_task,
+                "tool_name": tool_name,
+                "tool_desc": tool_desc,
+                "current_step": current_step,
+                "context": context_str,
+                "feedback": feedback
+            })
             tool_input = query_res.content.strip()
             print(f"    解析出的工具参数: [{tool_input}]")
 
@@ -74,23 +76,15 @@ class ExecutorNode:
 
         elif tool_name == "generate":
             print(f"    ✍️ 执行文本生成/总结/推理任务...")
-            prompt = f"""
-            你是一个专业的科研助手。请基于以下已有信息，完成指定的任务。
-            
-            【当前任务指令】：
-            {current_step}
+            #生成任务提示词的解耦
+            prompt_template = ChatPromptTemplate.from_template(TEXT_GENERATION_PROMPT)
+            chain = prompt_template | self.llm
 
-            【已有上下文信息】：
-            {context if context else "无"}
-
-            【严格事实约束】（极其重要）：
-            1. 你必须且只能基于【已有上下文信息】进行回答。
-            2. 仔细审查上下文信息是否与任务指令真实相关。如果上下文提供的文献与任务（如自动驾驶、强化学习）毫无关联，你必须明确指出“检索到的文献与任务无关”，并拒绝执行总结或筛选。
-            3. 绝不能为了完成任务而强行解释、捏造关联或过度联想。
-
-            要求：语言保持学术严谨且精炼，直接输出结果。
-            """
-            res = self.llm.invoke(prompt)
+            # 传入模板需要的变量
+            res = chain.invoke({
+                "current_step": current_step,
+                "context": context_str
+            })
             output = res.content
 
         else:

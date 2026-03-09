@@ -17,6 +17,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from config.settings import Settings
 from graph.state import AgentState
+from prompts.evaluator_prompts import EVALUATOR_SYSTEM_PROMPT,EVALUATOR_USER_PROMPT
 
 
 # 定义评估结果的数据结构
@@ -35,15 +36,10 @@ class EvaluatorNode:
         current_step = state["plan"][state["current_step_index"]]
         last_result = state["step_history"][-1] if state.get("step_history") else "无历史"
 
+        #导入常量组装prompt
         prompt = ChatPromptTemplate.from_messages([
-            ("system",
-             "你是一个严格的科研质量把控专家。你的任务是评估执行器（Executor）输出的结果是否圆满完成了当前步骤。\n"
-             "【评估标准】：\n"
-             "1. 是否直接且准确地完成了当前步骤？\n"
-             "2. 如果结果包含 '执行失败'、'Arxiv 搜索出错' 等异常，必须判定为不通过。\n"
-             "3. 如果执行器表示 '未找到相关论文' 或 '检索到的文献与任务无关'，必须判定为不通过，并在 feedback 中建议更换搜索词。\n"
-             "请严格按照以下格式输出：\n{format_instructions}"),
-            ("user", "【当前任务步骤】: {step}\n【执行结果】: {result}")
+            ("system", EVALUATOR_SYSTEM_PROMPT),
+            ("user", EVALUATOR_USER_PROMPT)
         ])
 
         chain = prompt | self.llm | self.parser

@@ -1,9 +1,11 @@
-import json
 from typing import List, Literal
+
+from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
+
 from config.settings import Settings
-from langchain_core.output_parsers import JsonOutputParser
+from prompts.planner_prompts import PLANNER_SYSTEM_PROMPT, PLANNER_USER_PROMPT
 
 # ==========================================
 # 1. 依然保留严格的工具池和数据结构约束
@@ -40,14 +42,10 @@ class PlannerNode:
         print("\n--- [Planner] Node ---")
         user_request = state.get("task_input", "")
 
-        # 核心改动：在 System Prompt 中注入 parser 自动生成的格式化指令
+        # 使用导入的常量组装 prompt
         prompt = ChatPromptTemplate.from_messages([
-            ("system",
-             "你是一名经验丰富的科研任务规划专家。你的目标是将用户的模糊需求拆解为可执行的科研步骤。\n"
-             "【严禁上下文丢失】：每个步骤的描述（task_description）必须包含具体的研究对象、实体名称或专业术语，绝不能使用'相关领域'、'目标文献'等模糊代词。例如：不要写'搜索相关文献'，必须写'在arXiv上搜索强化学习(RL)在自动驾驶(Autonomous Driving)领域的文献'。\n\n"
-             "【禁止预判与虚构】（极其重要）：绝不能在计划中虚构、假设或举例具体的未来数据（如特定的论文标题、作者名）。\n\n"
-             "严格遵守以下输出格式指南：\n{format_instructions}"),
-            ("user", "用户任务：{task}")
+            ("system", PLANNER_SYSTEM_PROMPT),
+            ("user", PLANNER_USER_PROMPT)
         ])
 
         # 构建处理链：Prompt -> LLM -> JSON解析器
