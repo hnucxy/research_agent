@@ -44,8 +44,14 @@ class EvaluatorNode:
 
         chain = prompt | self.llm | self.parser
 
+        # 获取上下文和全局任务
+        chat_history = state.get("chat_history", "无历史")
+        original_task = state.get("task_input", "无")
+
         try:
             evaluation = chain.invoke({
+                "chat_history": chat_history,
+                "original_task": original_task,
                 "step": current_step,
                 "result": last_result,
                 "format_instructions": self.parser.get_format_instructions()

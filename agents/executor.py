@@ -82,6 +82,7 @@ class ExecutorNode:
 
             # 传入模板需要的变量
             res = chain.invoke({
+                "chat_history": state.get("chat_history", "无"),
                 "current_step": current_step,
                 "context": context_str
             })

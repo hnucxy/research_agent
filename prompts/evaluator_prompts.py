@@ -8,5 +8,8 @@ EVALUATOR_SYSTEM_PROMPT = """你是一个严格的科研质量把控专家。你
 {format_instructions}
 """
 
-EVALUATOR_USER_PROMPT = """【当前任务步骤】: {step}
+EVALUATOR_USER_PROMPT = """
+【历史对话上下文】: {chat_history}
+【全局初始任务】: {original_task}
+【当前任务步骤】: {step}
 【执行结果】: {result}"""

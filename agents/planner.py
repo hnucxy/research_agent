@@ -54,6 +54,7 @@ class PlannerNode:
         try:
             # 传入 task 和 parser 自动生成的格式要求
             plan_dict = chain.invoke({
+                "chat_history": state.get("chat_history", "无"),
                 "task": user_request,
                 "format_instructions": self.parser.get_format_instructions()
             })
