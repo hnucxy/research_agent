@@ -2,6 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from config.settings import Settings
 from graph.state import AgentState
+from tools.academic_writer_tool import AcademicWriterTool
 from tools.arxiv_tool import ArxivSearchTool
 from prompts.executor_prompts import TOOL_EXTRACTION_PROMPT,TEXT_GENERATION_PROMPT
 
@@ -12,7 +13,8 @@ class ExecutorNode:
 
         # 注册工具池（未来随意扩充，Executor 逻辑一字都不用改）
         self.tools = {
-            "arxiv_search": ArxivSearchTool(),
+            "arxiv_search": ArxivSearchTool(), # arxiv文献检索工具
+            "academic_write": AcademicWriterTool(), # 学术内容写作工具
             # "calculator": CalculatorTool(),      # 假设未来加了计算器
             # "data_plot": DataPlottingTool(),     # 假设未来加了画图工具
         }

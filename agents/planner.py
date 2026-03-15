@@ -13,6 +13,7 @@ from prompts.planner_prompts import PLANNER_SYSTEM_PROMPT, PLANNER_USER_PROMPT
 AvailableTools = Literal[
     "arxiv_search",
     "generate",
+    "academic_write"
     # "web_search",
     # "data_analysis"
 ]
