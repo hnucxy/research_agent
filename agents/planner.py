@@ -51,12 +51,15 @@ class PlannerNode:
 
         # 构建处理链：Prompt -> LLM -> JSON解析器
         chain = prompt | self.llm | self.parser
-
+        # 提取历史教训
+        step_history_raw = state.get("step_history", [])
+        step_history_str = "\n".join(step_history_raw) if step_history_raw else "无"
         try:
             # 传入 task 和 parser 自动生成的格式要求
             plan_dict = chain.invoke({
                 "chat_history": state.get("chat_history", "无"),
                 "task": user_request,
+                "step_history": step_history_str,  # 传入失败教训
                 "format_instructions": self.parser.get_format_instructions()
             })
 
@@ -71,10 +74,18 @@ class PlannerNode:
                 plan_descriptions.append(desc)
                 assigned_tools.append(tool)
 
+
+            # 计算全局重规划次数
+            current_replan_count = state.get("replan_count", 0)
+            if step_history_str != "无":
+                current_replan_count += 1
+
             return {
                 "plan": plan_descriptions,
                 "planned_tools": assigned_tools,  # 传递给 Executor 使用
-                "current_step_index": 0
+                "current_step_index": 0,
+                "retry_count": 0,  # 重置局部重试次数
+                "replan_count": current_replan_count  # 更新全局重规划次数
             }
 
         except Exception as e:
@@ -83,5 +94,7 @@ class PlannerNode:
             return {
                 "plan": [f"直接处理用户任务: {user_request}"],
                 "planned_tools": ["generate"],
-                "current_step_index": 0
+                "current_step_index": 0,
+                "retry_count": 0,
+                "replan_count": state.get("replan_count", 0)
             }

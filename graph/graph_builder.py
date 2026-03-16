@@ -39,14 +39,23 @@ def build_graph():
     def check_evaluation(state: AgentState):
         result = state.get("evaluation_result", {})
         retry_count = state.get("retry_count", 0)
+        replan_count = state.get("replan_count", 0) # 获取全局重规划次数
 
-        # 防死循环：如果重试超过 3 次，强制认为通过（或转向专门的人工介入/放弃节点）
+        # 局部放死循环(原地重试超过三次)
         if retry_count >= 3:
             print("    [System] 重试次数达上限，强制放行。")
             return "pass"
 
         if result.get("passed") is True:
             return "pass"
+        elif result.get("action") == "replan":
+            # 全局防死循环(重规划超过2次)
+            if replan_count >=2:
+                print("    [System] 全局重规划次数达上限(可能无相关文献)，强制停止检索循环！")
+                return "pass"  # 强制放行，让下一步去总结
+            else:
+                print(f"    [System] 评估发现方向性错误，触发第 {replan_count + 1} 次 Re-plan，回退到Planner！")
+                return "replan"
         else:
             print("    [System] 评估未通过，触发 Self-Refine 回退 Executor重试。")
             return "retry"
@@ -56,7 +65,8 @@ def build_graph():
         check_evaluation,
         {
             "pass": "update_step",  # 成功则更新索引
-            "retry": "executor"  # 失败则回到 executor 执行重试
+            "retry": "executor",  # 失败则回到 executor 执行重试
+            "replan": "planner"
         }
     )
     # 4. 定义条件边 (循环逻辑)

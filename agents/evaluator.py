@@ -13,6 +13,7 @@
 #         }
 
 from pydantic import BaseModel, Field
+from typing import Literal
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from config.settings import Settings
@@ -24,6 +25,11 @@ from prompts.evaluator_prompts import EVALUATOR_SYSTEM_PROMPT,EVALUATOR_USER_PRO
 class EvaluationSchema(BaseModel):
     passed: bool = Field(description="执行结果是否满足当前科研任务要求。如果工具报错或无相关内容，必须为False。")
     feedback: str = Field(description="如果不通过，请给出具体的修改建议（如：'请更换搜索关键词为X'）；如果通过，简述理由。")
+    # action 字段
+    action: Literal["retry_step", "replan"] = Field(
+        default="retry_step",
+        description="如果passed为False，决定下一步策略：若是工具参数格式错或只需微调，选 'retry_step'；若是因为前置检索步骤失败导致当前完全没上下文可用，选 'replan' 触发全局重规划。"
+    )
 
 
 class EvaluatorNode:
@@ -58,9 +64,10 @@ class EvaluatorNode:
             })
         except Exception as e:
             print(f"    [Error] Evaluator 解析失败: {e}")
-            evaluation = {"passed": True, "feedback": "解析失败，启动兜底放行。"}
+            evaluation = {"passed": True, "feedback": "解析失败，启动兜底放行。", "action": "retry_step"}
 
         print(f"    [Result] Passed: {evaluation.get('passed')}")
+        print(f"    [Action] {evaluation.get('action', 'retry_step')}")
         print(f"    [Feedback]: {evaluation.get('feedback')}")
 
         # 每次进入评估器，我们让重试次数自动 +1

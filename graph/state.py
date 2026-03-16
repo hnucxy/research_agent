@@ -21,6 +21,9 @@ class AgentState(TypedDict):
     #[Self-Refine] 当前步骤的重试次数，防止无限重试死循环
     retry_count: int
 
+    # 全局重新规划次数
+    replan_count: int
+
     # 当前正在执行的步骤索引
     current_step_index: int
 
