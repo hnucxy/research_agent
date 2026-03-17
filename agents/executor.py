@@ -95,7 +95,7 @@ class ExecutorNode:
             output = f"【系统提示】: 无法执行。Planner 分配了未注册的工具 '{tool_name}'。"
 
         # print(f"    步骤输出预览: {output[:100]}...\n")
-        print(f"     步骤输出：\n{output}")
+        print(f"     步骤输出：此处省略，方便查看流程")
 
         return {
             "step_history": [f"Step: {current_step}\nTool: {tool_name}\nResult: {output}"]

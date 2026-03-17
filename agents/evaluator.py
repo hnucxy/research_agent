@@ -66,11 +66,16 @@ class EvaluatorNode:
             print(f"    [Error] Evaluator 解析失败: {e}")
             evaluation = {"passed": True, "feedback": "解析失败，启动兜底放行。", "action": "retry_step"}
 
-        print(f"    [Result] Passed: {evaluation.get('passed')}")
-        print(f"    [Action] {evaluation.get('action', 'retry_step')}")
+        is_passed = evaluation.get('passed', False)
+        raw_action = evaluation.get('action', 'retry_step')
+
+        # 针对终端显示的格式化逻辑
+        display_action = "正常放行(Proceed)" if is_passed else raw_action
+
+        print(f"    [Result] Passed: {is_passed}")
+        print(f"    [Action]: {display_action}")
         print(f"    [Feedback]: {evaluation.get('feedback')}")
 
-        # 每次进入评估器，我们让重试次数自动 +1
         current_retry = state.get("retry_count", 0) + 1
         return {
             "evaluation_result": evaluation,
