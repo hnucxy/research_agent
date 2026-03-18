@@ -1,4 +1,3 @@
-
 import streamlit as st
 import json
 import os
@@ -6,10 +5,16 @@ import re
 from datetime import datetime
 from graph.graph_builder import build_graph
 
-
 # 配置与辅助函数 (多会话管理)
-
 HISTORY_DIR = "chat_history"
+
+# 定义功能映射表
+FUNC_MAP = {
+    "a": "文献检索",
+    "b": "学术内容撰写",
+    "c": "功能三",
+    "d": "功能四"
+}
 
 # 确保历史记录文件夹存在
 if not os.path.exists(HISTORY_DIR):
@@ -49,52 +54,55 @@ def delete_chat(chat_id):
         os.remove(filepath)
 
 
-def init_new_chat():
-    """初始化一个全新的对话"""
-    # 使用时间戳作为唯一标识符 ID
-    new_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+def init_new_chat(func_code):
+    """初始化一个全新的对话，ID 格式：时间戳_功能代码"""
+    new_id = datetime.now().strftime("%Y%m%d_%H%M%S") + f"_{func_code}"
     st.session_state.current_chat_id = new_id
     st.session_state.messages = []
+    st.session_state.current_function = func_code
 
 
-# 1. 页面初始化与状态管理
+
+# 页面初始化与状态管理
 
 st.set_page_config(page_title="科研 Agent", page_icon="🤖", layout="wide")
 
 # 初始化 session_state
+if "current_function" not in st.session_state:
+    st.session_state.current_function = None  # None 表示处于主页
+
 if "current_chat_id" not in st.session_state:
-    files = get_chat_files()
-    if files:
-        # 如果有历史记录，默认加载最新的一个
-        latest_id = files[0].replace(".json", "")
-        st.session_state.current_chat_id = latest_id
-        st.session_state.messages = load_chat(latest_id)
-    else:
-        # 没有任何记录时，新建对话
-        init_new_chat()
+    st.session_state.current_chat_id = None
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 
-# 2. 侧边栏：对话管理 UI
+# 侧边栏：对话管理 UI
 
 with st.sidebar:
     st.title("💬 会话管理")
 
-    # 新建对话按钮
-    if st.button("➕ 新建对话", use_container_width=True):
-        init_new_chat()
+    # 返回主页按钮
+    if st.button("🏠 返回主页", use_container_width=True):
+        st.session_state.current_function = None
+        st.session_state.current_chat_id = None
         st.rerun()
 
+    # 新建当前功能对话（仅在非主页时显示）
+    if st.session_state.current_function is not None:
+        if st.button(f"➕ 新建【{FUNC_MAP[st.session_state.current_function]}】对话", use_container_width=True):
+            init_new_chat(st.session_state.current_function)
+            st.rerun()
+
     # 删除当前对话按钮
-    if st.button("🗑️ 删除当前对话", type="primary", use_container_width=True):
-        delete_chat(st.session_state.current_chat_id)
-        # 删除后尝试加载上一条记录，否则新建空记录
-        files = get_chat_files()
-        if files:
-            st.session_state.current_chat_id = files[0].replace(".json", "")
-            st.session_state.messages = load_chat(st.session_state.current_chat_id)
-        else:
-            init_new_chat()
-        st.rerun()
+    if st.session_state.current_chat_id is not None:
+        if st.button("🗑️ 删除当前对话", type="primary", use_container_width=True):
+            delete_chat(st.session_state.current_chat_id)
+            # 删除后返回主页
+            st.session_state.current_function = None
+            st.session_state.current_chat_id = None
+            st.rerun()
 
     st.divider()
     st.subheader("历史记录")
@@ -104,159 +112,202 @@ with st.sidebar:
         chat_id = file.replace(".json", "")
         chat_msgs = load_chat(chat_id)
 
+        # 解析功能模块后缀以显示在标题中
+        parts = chat_id.split("_")
+        func_code_in_file = parts[-1] if len(parts) >= 3 else "a"
+        func_name = FUNC_MAP.get(func_code_in_file, "未知功能")
+
         # 提取第一条用户消息作为标题，限制长度
         title = "新对话 (空)"
         for m in chat_msgs:
             if m["role"] == "user":
-                title = m["content"][:12] + "..." if len(m["content"]) > 12 else m["content"]
+                title = m["content"][:10] + "..." if len(m["content"]) > 10 else m["content"]
                 break
 
-        # 判断是否是当前激活的对话，并添加特殊样式标识
+        # 判断是否是当前激活的对话
         is_active = (chat_id == st.session_state.current_chat_id)
-        btn_label = f"▶ {title}" if is_active else f"📝 {title}"
+        btn_label = f"▶ [{func_name}] {title}" if is_active else f"📝 [{func_name}] {title}"
 
-        # 如果点击了某条历史记录，则切换过去
+        # 点击历史记录，切换页面和会话
         if st.button(btn_label, key=chat_id, use_container_width=True, disabled=is_active):
             st.session_state.current_chat_id = chat_id
             st.session_state.messages = chat_msgs
+            st.session_state.current_function = func_code_in_file
             st.rerun()
 
 
-# 3. 主界面渲染与交互核心
+# 主界面渲染与交互核心
 
-st.title("🤖 智能科研助手")
-st.caption(f"当前会话 ID: `{st.session_state.current_chat_id}`")
+if st.session_state.current_function is None:
 
-# 渲染当前选中的历史对话
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        if msg["role"] == "assistant" and "process_logs" in msg:
-            with st.expander("查看历史执行过程"):
-                for log in msg["process_logs"]:
-                    st.markdown(log)
-        st.markdown(msg["content"])
+    # 视图 A: 导航主页
 
-# 底部聊天输入框
-if prompt := st.chat_input("请输入你的科研需求（例如：调研最近关于大模型在医学领域的应用论文...）"):
+    st.markdown("<h1 style='text-align: center; margin-top: 50px;'>科研助手agent系统</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: gray;'>请选择您要使用的科研助手功能</p>", unsafe_allow_html=True)
+    st.write("---")
 
-    # 立即展示用户输入，并存入状态与当前文件
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    save_chat(st.session_state.current_chat_id, st.session_state.messages)
+    # 留空一些间距
+    st.write("")
+    st.write("")
 
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    col1, col2, col3, col4 = st.columns([1, 4, 4, 1], gap="large")  # 增加 gap 让卡片之间更有呼吸感
 
-    # 助手响应区域
-    with st.chat_message("assistant"):
-        with st.status("Agent 正在思考与执行...", expanded=True) as status:
-            try:
-                # 提取并格式化历史对话
-                history_msgs = []
-                # 遍历除最后一条（刚刚输入的当前prompt）之外的所有消息
-                for m in st.session_state.messages[:-1]:
-                    role_name = "用户" if m["role"] == "user" else "助手"
-                    # 这里过滤掉嵌套的 process_logs，只保留纯文本对话内容
-                    content = m.get("content", "")
-                    history_msgs.append(f"[{role_name}]: {content}")
+    with col2:
+        with st.container(border=True):
+            st.subheader("📚 1. 文献检索")
+            st.caption("输入关键词或主题，快速检索并总结相关领域的前沿学术论文与文献。")
+            if st.button("进入检索", key="btn_a", use_container_width=True, type="primary"):
+                init_new_chat("a")
+                st.rerun()
 
-                chat_history_str = "\n".join(history_msgs) if history_msgs else "无历史对话"
+        st.write("")  # 垂直间距
 
+        with st.container(border=True):
+            st.subheader("🔧 3. 功能三")
+            st.caption("TODO")
+            if st.button("创建会话", key="btn_c", use_container_width=True):
+                init_new_chat("c")
+                st.rerun()
 
-                # 初始化 Agent
-                agent_app = build_graph()
-                initial_state = {
-                    "task_input": prompt,
-                    "chat_history": chat_history_str, #删掉未使用的长程记忆，传入历史记录
-                    "plan": [],
-                    "planned_tools": [],
-                    "current_step_index": 0,
-                    "retry_count": 0,
-                    "replan_count": 0,
-                    "step_history": [],
-                    "evaluation_result": {},
-                    "final_answer": ""
-                }
+    with col3:
+        with st.container(border=True):
+            st.subheader("✍️ 2. 学术内容撰写")
+            st.caption("根据已有文献资料和您的研究大纲，辅助撰写结构化的学术内容。")
+            if st.button("进入撰写", key="btn_b", use_container_width=True, type="primary"):
+                init_new_chat("b")
+                st.rerun()
 
-                final_output = ""
-                process_logs = [] #收集日志
+        st.write("")  # 垂直间距
 
-                # 监听 LangGraph 的状态流转
-                for output in agent_app.stream(initial_state):
-                    for node_name, state_update in output.items():
+        with st.container(border=True):
+            st.subheader("⚙️ 4. 功能四")
+            st.caption("TODO")
+            if st.button("创建会话", key="btn_d", use_container_width=True):
+                init_new_chat("d")
+                st.rerun()
 
-                        if node_name == "planner":
-                            # 1. 网页渲染文本
-                            st.write("🧠 **规划器 (Planner)** 制定了新计划：")
-                            # 2. 将纯文本追加到日志列表
-                            process_logs.append("🧠 **规划器 (Planner)** 制定了新计划：")
+else:
 
-                            plans = state_update.get('plan', [])
-                            tools = state_update.get('planned_tools', [])
-                            for i, (p, t) in enumerate(zip(plans, tools)):
-                                # 拼装好纯文本字符串
-                                log_str = f"**Step {i + 1}**: {p} `[Tool: {t}]`"
+    # 视图 B: 对话交互页
 
-                                # 用纯文本字符串去渲染网页
-                                st.info(log_str)
+    func_name = FUNC_MAP.get(st.session_state.current_function, "未知")
+    st.title(f"🤖 智能科研助手 - {func_name}")
+    st.caption(f"当前会话 ID: `{st.session_state.current_chat_id}`")
 
-                                # 最后把纯文本字符串存入日志
-                                process_logs.append(f"  - {log_str}")  # 收集plan日志
+    # 渲染当前选中的历史对话
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            if msg["role"] == "assistant" and "process_logs" in msg:
+                with st.expander("查看历史执行过程"):
+                    for log in msg["process_logs"]:
+                        st.markdown(log)
+            st.markdown(msg["content"])
 
-                        elif node_name == "executor":
-                            step_history = state_update.get('step_history', [])
-                            if step_history:
-                                st.write("🛠️ **执行器 (Executor)** 完成操作：")
-                                st.code(step_history[-1], language="text")
-                                process_logs.append(f"🛠️ **执行器操作**:\n```text\n{step_history[-1]}\n```") # 收集executor日志
-                                # 提取最后一次结果
+    # 底部聊天输入框
+    placeholder_text = "请输入你的科研需求..."
+    if prompt := st.chat_input(placeholder_text):
 
-                                last_log = step_history[-1]
+        # 立即展示用户输入，并存入状态与当前文件
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        save_chat(st.session_state.current_chat_id, st.session_state.messages)
 
-                                # 使用 re.DOTALL 确保匹配 Result: 之后的所有内容（包含换行符）
-                                match = re.search(r"Result:\s*(.*)", last_log, flags=re.DOTALL)
-                                if match:
-                                    parsed_text = match.group(1).strip()
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # 助手响应区域
+        with st.chat_message("assistant"):
+            with st.status("Agent 正在思考与执行...", expanded=True) as status:
+                try:
+                    # 提取并格式化历史对话
+                    history_msgs = []
+                    for m in st.session_state.messages[:-1]:
+                        role_name = "用户" if m["role"] == "user" else "助手"
+                        content = m.get("content", "")
+                        history_msgs.append(f"[{role_name}]: {content}")
+
+                    chat_history_str = "\n".join(history_msgs) if history_msgs else "无历史对话"
+
+                    # 这里未来可以根据 st.session_state.current_function 的值（a/b/c/d）
+                    # 给 initial_state 或者 Agent 注入不同的系统提示词 (Prompt)。
+
+                    # 初始化 Agent
+                    agent_app = build_graph()
+                    initial_state = {
+                        "task_input": prompt,
+                        "chat_history": chat_history_str,
+                        "plan": [],
+                        "planned_tools": [],
+                        "current_step_index": 0,
+                        "retry_count": 0,
+                        "replan_count": 0,
+                        "step_history": [],
+                        "evaluation_result": {},
+                        "final_answer": ""
+                    }
+
+                    final_output = ""
+                    process_logs = []
+
+                    # 监听 LangGraph 的状态流转
+                    for output in agent_app.stream(initial_state):
+                        for node_name, state_update in output.items():
+
+                            if node_name == "planner":
+                                st.write("🧠 **规划器 (Planner)** 制定了新计划：")
+                                process_logs.append("🧠 **规划器 (Planner)** 制定了新计划：")
+
+                                plans = state_update.get('plan', [])
+                                tools = state_update.get('planned_tools', [])
+                                for i, (p, t) in enumerate(zip(plans, tools)):
+                                    log_str = f"**Step {i + 1}**: {p} `[Tool: {t}]`"
+                                    st.info(log_str)
+                                    process_logs.append(f"  - {log_str}")
+
+                            elif node_name == "executor":
+                                step_history = state_update.get('step_history', [])
+                                if step_history:
+                                    st.write("🛠️ **执行器 (Executor)** 完成操作：")
+                                    st.code(step_history[-1], language="text")
+                                    process_logs.append(f"🛠️ **执行器操作**:\n```text\n{step_history[-1]}\n```")
+
+                                    last_log = step_history[-1]
+                                    match = re.search(r"Result:\s*(.*)", last_log, flags=re.DOTALL)
+                                    if match:
+                                        parsed_text = match.group(1).strip()
+                                    else:
+                                        parsed_text = last_log.strip()
+
+                                    parsed_text = re.sub(r"^【.*?执行结果】:\s*", "", parsed_text).strip()
+
+                                    if parsed_text:
+                                        final_output = parsed_text
+
+                            elif node_name == "evaluator":
+                                eval_res = state_update.get('evaluation_result', {})
+                                passed = eval_res.get('passed', False)
+                                fb = eval_res.get('feedback', '')
+                                if passed:
+                                    log_str = f"✅ **评估 (Evaluator)**: 步骤通过！(反馈: {fb})"
+                                    st.success(log_str)
                                 else:
-                                    parsed_text = last_log.strip()
+                                    log_str = f"⚠️ **评估 (Evaluator)**: 未通过，触发修正重试。(反馈: {fb})"
+                                    st.warning(log_str)
+                                process_logs.append(log_str)
 
-                                # 清洗掉可能附带的工具前缀
-                                parsed_text = re.sub(r"^【.*?执行结果】:\s*", "", parsed_text).strip()
+                    status.update(label="任务执行完毕！点击查看执行详情", state="complete", expanded=True)
 
-                                # 【关键防御】：只有解析出非空内容时，才更新 final_output
-                                # 这样就算遇到空输出的异常情况，也不会把之前正确拿到的结果覆盖掉
-                                if parsed_text:
-                                    final_output = parsed_text
+                    # 在外部正式展示最终汇总的科研结果
+                    final_answer_display = f"### 执行结果\n{final_output}" if final_output else "未获取到有效结果。"
+                    st.markdown(final_answer_display)
 
-                        elif node_name == "evaluator":
-                            eval_res = state_update.get('evaluation_result', {})
-                            passed = eval_res.get('passed', False)
-                            fb = eval_res.get('feedback', '')
-                            if passed:
-                                log_str = f"✅ **评估 (Evaluator)**: 步骤通过！(反馈: {fb})"
-                                st.success(f"✅ **评估 (Evaluator)**: 步骤通过！(反馈: {fb})")
-                            else:
-                                log_str = f"⚠️ **评估 (Evaluator)**: 未通过，触发修正重试。(反馈: {fb})"
-                                st.warning(f"⚠️ **评估 (Evaluator)**: 未通过，触发修正重试。(反馈: {fb})")
-                            process_logs.append(log_str) #收集evaluator日志
+                    # 覆盖写入
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": final_answer_display,
+                        "process_logs": process_logs
+                    })
+                    save_chat(st.session_state.current_chat_id, st.session_state.messages)
 
-                        # 实时缓存历史记录，用于最后总结
-                        # if "step_history" in state_update:
-                        #     final_output = "\n\n---\n\n".join(state_update["step_history"])
-
-                status.update(label="任务执行完毕！点击查看执行详情", state="complete", expanded=True)
-
-                # 在外部正式展示最终汇总的科研结果
-                final_answer_display = f"### 调研汇总\n{final_output}" if final_output else "未获取到有效结果。"
-                st.markdown(final_answer_display)
-
-                # 将最终结果存入状态并【覆盖写入当前 JSON 文件】
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": final_answer_display,
-                    "process_logs": process_logs
-                })
-                save_chat(st.session_state.current_chat_id, st.session_state.messages)
-
-            except Exception as e:
-                status.update(label="执行过程中发生错误", state="error", expanded=True)
-                st.error(f"Error: {str(e)}")
+                except Exception as e:
+                    status.update(label="执行过程中发生错误", state="error", expanded=True)
+                    st.error(f"Error: {str(e)}")
