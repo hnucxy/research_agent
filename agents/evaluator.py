@@ -1,16 +1,3 @@
-# from graph.state import AgentState
-#
-#
-# class EvaluatorNode:
-#     def __call__(self, state: AgentState) -> dict:
-#         print("\n--- [Evaluator] Node ---")
-#         # 为了演示汇报，强制通过，不进行 Self-Refine 循环
-#         print("    [System] Self-Refine module is currently disabled for fast-pass.")
-#         print("    [Result] Evaluation Passed.")
-#
-#         return {
-#             "evaluation_result": {"passed": True, "feedback": "Auto-passed"}
-#         }
 
 from pydantic import BaseModel, Field
 from typing import Literal
