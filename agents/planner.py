@@ -51,9 +51,23 @@ class PlannerNode:
 
         # 构建处理链：Prompt -> LLM -> JSON解析器
         chain = prompt | self.llm | self.parser
-        # 提取历史教训
-        step_history_raw = state.get("step_history", [])
-        step_history_str = "\n".join(step_history_raw) if step_history_raw else "无"
+        # 提取历史教训：不再使用原始的冗长执行日志，而是直接提取 Evaluator 的评估反馈
+        eval_res = state.get("evaluation_result", {})
+        replan_count = state.get("replan_count", 0)
+
+        # 只有在存在评估结果且未通过时，才构造失败教训
+        if eval_res and not eval_res.get("passed", True):
+            last_plan = state.get("plan", [])
+            feedback = eval_res.get("feedback", "无评估反馈")
+            step_history_str = (
+                f"【注意：这是第 {replan_count} 次重新规划】\n"
+                f"你上一次制定的计划步骤是：{last_plan}\n"
+                f"但该计划执行失败。评估专家的拒绝原因与修改建议如下：\n"
+                f"\"{feedback}\"\n"
+                f"要求：请务必吸取上述教训，严格按照专家的建议更换搜索关键词或调整策略，切勿尝试去总结或处理上一次检索到的无效内容！"
+            )
+        else:
+            step_history_str = "无"
         try:
             # 传入 task 和 parser 自动生成的格式要求
             plan_dict = chain.invoke({

@@ -294,6 +294,10 @@ else:
                                     st.warning(log_str)
                                 process_logs.append(log_str)
 
+                            elif node_name == "give_up":
+                                final_output = None
+
+
                     status.update(label="任务执行完毕！点击查看执行详情", state="complete", expanded=True)
 
                     # 在外部正式展示最终汇总的科研结果

@@ -41,15 +41,9 @@ def build_graph():
     workflow.set_entry_point("planner")
 
     # 3. 定义普通边 (流程流转)
-    # 规划 -> 执行
     workflow.add_edge("planner", "executor")
-    # 执行 -> 评估
     workflow.add_edge("executor", "evaluator")
-
     workflow.add_edge("give_up", "update_step")  # 兜底汇报完直接去更新步骤(触发结束)
-
-    # 评估 -> 更新步骤索引
-    # workflow.add_edge("evaluator", "update_step")
 
     def check_evaluation(state: AgentState):
         result = state.get("evaluation_result", {})
@@ -75,7 +69,7 @@ def build_graph():
 
         # 3. 集中检查全局重规划次数 (防死循环)
         if needs_replan:
-            if replan_count >= 2:
+            if replan_count >= 1:
                 print("    [System] 全局重规划次数达上限(确认无匹配文献)，强制结束调研并汇报失败！")
                 return "give_up"  # 指向我们上次新增的 give_up_node
             else:
