@@ -8,9 +8,9 @@ class Settings:
     API_KEY = os.getenv("API_KEY")
 
     BASE_URL = "https://api.deepseek.com"
-
+    # BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
     # BASE_URL = "https://ai.zhansi.top/v1"
-    MODEL_NAME = "deepseek-chat" # 或 gpt-5.2
+    MODEL_NAME = "deepseek-chat" # 或 gpt-5.2  或doubao-seed-2-0-lite-260215
 
 
     @classmethod

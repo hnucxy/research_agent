@@ -12,7 +12,7 @@ HISTORY_DIR = "chat_history"
 FUNC_MAP = {
     "a": "文献检索",
     "b": "学术内容撰写",
-    "c": "功能三",
+    "c": "文献阅读",
     "d": "功能四"
 }
 
@@ -163,9 +163,9 @@ if st.session_state.current_function is None:
         st.write("")  # 垂直间距
 
         with st.container(border=True):
-            st.subheader("🔧 3. 功能三")
-            st.caption("TODO")
-            if st.button("创建会话", key="btn_c", use_container_width=True):
+            st.subheader("📖 3. 文献阅读")
+            st.caption("上传预先转换好的 Markdown 格式文献，大模型将基于文献内容与您进行深度对话与总结。")
+            if st.button("创建会话", key="btn_c", use_container_width=True, type="primary"):
                 init_new_chat("c")
                 st.rerun()
 
@@ -193,6 +193,19 @@ else:
     func_name = FUNC_MAP.get(st.session_state.current_function, "未知")
     st.title(f"🤖 智能科研助手 - {func_name}")
     st.caption(f"当前会话 ID: `{st.session_state.current_chat_id}`")
+
+    if st.session_state.current_function == "c":
+        with st.sidebar:
+            st.divider()
+            st.subheader("📄 文献上传")
+            uploaded_file = st.file_uploader("上传您的 Markdown 文献", type=["md"])
+            if uploaded_file is not None:
+                # 将文件保存到本地根目录，供 LiteratureReaderTool 读取
+                with open("uploaded_doc.md", "wb") as f:
+                    f.write(uploaded_file.getvalue())
+                st.success("文献上传并保存成功！Agent 现在可以读取它了。")
+            elif os.path.exists("uploaded_doc.md"):
+                st.info("当前系统已存在上传的文献，可直接针对它提问。")
 
     # 渲染当前选中的历史对话
     for msg in st.session_state.messages:
@@ -230,10 +243,14 @@ else:
                     # 这里未来可以根据 st.session_state.current_function 的值（a/b/c/d）
                     # 给 initial_state 或者 Agent 注入不同的系统提示词 (Prompt)。
 
+                    enhanced_prompt = prompt
+                    if st.session_state.current_function == "c" and os.path.exists("uploaded_doc.md"):
+                        enhanced_prompt += "\n\n【系统隐式提示】：用户已在系统中上传了一份本地文献。请务必优先规划并调用 `literature_read` 工具来阅读/提取该文献的内容，然后再回答问题。"
+
                     # 初始化 Agent
                     agent_app = build_graph()
                     initial_state = {
-                        "task_input": prompt,
+                        "task_input": enhanced_prompt,
                         "chat_history": chat_history_str,
                         "plan": [],
                         "planned_tools": [],
