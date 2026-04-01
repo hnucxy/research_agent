@@ -1,6 +1,7 @@
 import json
 import re
 import os
+import tiktoken
 from langchain_core.prompts import ChatPromptTemplate
 from tools.base import BaseTool
 from config.settings import Settings
@@ -42,16 +43,23 @@ class LiteratureReaderTool(BaseTool):
             args = json.loads(clean_params)
             query = args.get("query", "")
 
-            # 检查文件是否存在
             if not os.path.exists(self.doc_path):
                 return "执行失败：未找到用户上传的文献文件，请在聊天中提醒用户先在侧边栏上传 Markdown 文献。"
 
             with open(self.doc_path, "r", encoding="utf-8") as f:
                 doc_content = f.read()
 
-            # 简单的长度截断防护，防止超长文档导致 Token 溢出（视你的模型上下文窗口而定，DeepSeek一般支持较长上下文）
-            if len(doc_content) > 80000:
-                doc_content = doc_content[:80000] + "\n...[后文过长已截断]..."
+            # 使用 cl100k_base 编码器（大多数现代大模型的通用标准参考）
+            enc = tiktoken.get_encoding("cl100k_base")
+            tokens = enc.encode(doc_content)
+
+            # 设定最大 Token 限制为 115,000，为 Prompt 和输出留出 13k 的缓冲空间
+            max_tokens = 115000
+
+            if len(tokens) > max_tokens:
+                # 截断 Token 并解码回字符串
+                truncated_tokens = tokens[:max_tokens]
+                doc_content = enc.decode(truncated_tokens) + "\n...[文献过长，已基于 128k Token 限制自动截断后文]..."
 
             prompt_template = ChatPromptTemplate.from_template(READING_PROMPT)
             chain = prompt_template | self.llm
