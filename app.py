@@ -2,11 +2,13 @@ import streamlit as st
 import json
 import os
 import re
+import shutil
 from datetime import datetime
 from graph.graph_builder import build_graph
 
 # 配置与辅助函数 (多会话管理)
 HISTORY_DIR = "chat_history"
+UPLOAD_DIR = "uploads"
 
 # 定义功能映射表
 FUNC_MAP = {
@@ -19,6 +21,10 @@ FUNC_MAP = {
 # 确保历史记录文件夹存在
 if not os.path.exists(HISTORY_DIR):
     os.makedirs(HISTORY_DIR)
+
+# 确保文件上传文件夹存在
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
 
 
 def get_chat_files():
@@ -52,6 +58,12 @@ def delete_chat(chat_id):
     filepath = os.path.join(HISTORY_DIR, f"{chat_id}.json")
     if os.path.exists(filepath):
         os.remove(filepath)
+    
+    # 同步删除该会话隔离的文献文件夹
+    chat_upload_dir = os.path.join(UPLOAD_DIR, chat_id)
+    if os.path.exists(chat_upload_dir):
+        shutil.rmtree(chat_upload_dir)
+
 
 
 def init_new_chat(func_code):
@@ -189,23 +201,47 @@ if st.session_state.current_function is None:
 else:
 
     # 视图 B: 对话交互页
-
     func_name = FUNC_MAP.get(st.session_state.current_function, "未知")
     st.title(f"🤖 智能科研助手 - {func_name}")
     st.caption(f"当前会话 ID: `{st.session_state.current_chat_id}`")
 
-    if st.session_state.current_function == "c":
+    # 限定只有功能c和d允许上传和查阅文献
+    if st.session_state.current_function in ["c", "d"]:
+        chat_upload_dir = os.path.join(UPLOAD_DIR, st.session_state.current_chat_id)
+        os.makedirs(chat_upload_dir, exist_ok=True)
+        
         with st.sidebar:
             st.divider()
             st.subheader("📄 文献上传")
-            uploaded_file = st.file_uploader("上传您的 Markdown 文献", type=["md"])
-            if uploaded_file is not None:
-                # 将文件保存到本地根目录，供 LiteratureReaderTool 读取
-                with open("uploaded_doc.md", "wb") as f:
-                    f.write(uploaded_file.getvalue())
-                st.success("文献上传并保存成功！Agent 现在可以读取它了。")
-            elif os.path.exists("uploaded_doc.md"):
-                st.info("当前系统已存在上传的文献，可直接针对它提问。")
+            # 开启 accept_multiple_files=True 支持多文献同时上传
+            uploaded_files = st.file_uploader("上传您的 Markdown 文献", type=["md"], accept_multiple_files=True)
+            if uploaded_files:
+                for uploaded_file in uploaded_files:
+                    file_path = os.path.join(chat_upload_dir, uploaded_file.name)
+                    # 如果文件不存在则保存
+                    if not os.path.exists(file_path):
+                        with open(file_path, "wb") as f:
+                            f.write(uploaded_file.getvalue())
+                st.success(f"成功上传 {len(uploaded_files)} 份文献！")
+            
+            # 动态列出当前会话已存在的文献
+            available_files = os.listdir(chat_upload_dir) if os.path.exists(chat_upload_dir) else []
+            if available_files:
+                st.write("📚 **当前会话可用文献：**")
+                
+                # 遍历当前可用的文件，逐个渲染带有删除按钮的列表项
+                for f_name in available_files:
+                    col1, col2 = st.columns([5, 1])
+                    col1.markdown(f"- `{f_name}`")
+                    
+                    # 动态生成唯一的按钮 key，防止多个组件冲突
+                    btn_key = f"del_{st.session_state.current_chat_id}_{f_name}"
+                    
+                    if col2.button("🗑️", key=btn_key, help="从当前会话中删除此文献"):
+                        file_to_delete = os.path.join(chat_upload_dir, f_name)
+                        if os.path.exists(file_to_delete):
+                            os.remove(file_to_delete)
+                        st.rerun()  # 删除后强制刷新页面，更新列表
 
     # 渲染当前选中的历史对话
     for msg in st.session_state.messages:
@@ -240,12 +276,23 @@ else:
 
                     chat_history_str = "\n".join(history_msgs) if history_msgs else "无历史对话"
 
-                    # 这里未来可以根据 st.session_state.current_function 的值（a/b/c/d）
-                    # 给 initial_state 或者 Agent 注入不同的系统提示词 (Prompt)。
-
                     enhanced_prompt = prompt
-                    if st.session_state.current_function == "c" and os.path.exists("uploaded_doc.md"):
-                        enhanced_prompt += "\n\n【系统隐式提示】：用户已在系统中上传了一份本地文献。请务必优先规划并调用 `literature_read` 工具来阅读/提取该文献的内容，然后再回答问题。"
+                    
+                    # 只在功能c和d，并且拥有文件时，才给 Agent 注入强制阅读清单
+                    if st.session_state.current_function in ["c", "d"]:
+                        chat_upload_dir = os.path.join(UPLOAD_DIR, st.session_state.current_chat_id)
+                        if os.path.exists(chat_upload_dir):
+                            available_files = os.listdir(chat_upload_dir)
+                            if available_files:
+                                # 构建文件路径清单
+                                file_list_str = "\n".join([f"- 文件名: {f}, 绝对路径: {os.path.join(chat_upload_dir, f).replace(chr(92), '/')}" for f in available_files])
+                                
+                                enhanced_prompt += (
+                                    f"\n\n【系统隐式提示】：用户已在当前会话上传了文献，请根据用户需求，优先规划并调用 `literature_read` 工具来分析以下文献。\n"
+                                    f"【当前可用文献清单】:\n{file_list_str}\n"
+                                    f"【重要注意】：调用文献工具时，必须准确将上述清单中的“绝对路径”填入 file_path 参数中。如果需要比较多篇文献，请依次规划多个工具调用步骤。"
+                                )
+                    
 
                     # 初始化 Agent
                     agent_app = build_graph()
