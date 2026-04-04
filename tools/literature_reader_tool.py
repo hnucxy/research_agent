@@ -3,22 +3,10 @@ import re
 import os
 import tiktoken
 from langchain_core.prompts import ChatPromptTemplate
+from prompts.executor_prompts import READING_PROMPT
 from tools.base import BaseTool
 from config.settings import Settings
 
-READING_PROMPT = """你是一个专业的学术文献阅读助手。请基于以下提供的文献内容，精准回答用户的问题。
-
-【文献内容】：
-{document_content}
-
-【当前用户问题/任务】：
-{user_query}
-
-【严格要求】：
-1. 你的所有回答必须以提供的【文献内容】为核心事实依据。
-2. 如果用户的提问超出了该文献的范围，请直接说明“文献中未提及”，切勿自行捏造。
-3. 提取关键信息时，语言保持客观、严谨的学术风格。
-4. 【上下文保护限制】：请直接输出精简、总结性的核心结论。绝对不要大段复制原文，你的回答将被上游 Agent 放入短时记忆中，过度冗长会导致系统崩溃！"""
 
 class LiteratureReaderTool(BaseTool):
     name = "literature_read"
