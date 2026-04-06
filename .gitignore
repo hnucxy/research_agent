@@ -25,5 +25,7 @@ ENV/
 chat_history/
 uploads/
 
+chroma_db/
+
 *.md
 !README.md

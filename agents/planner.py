@@ -14,7 +14,8 @@ AvailableTools = Literal[
     "arxiv_search",
     "generate",
     "academic_write",
-    "literature_read"
+    "literature_read",
+    "literature_rag_search"
     # "web_search",
     # "data_analysis"
 ]

@@ -1,6 +1,9 @@
 import streamlit as st
 import os
 import re
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_chroma import Chroma
+from config.settings import Settings
 from graph.graph_builder import build_graph
 from ui.config import UPLOAD_DIR, FUNC_MAP
 from ui.session import save_chat
@@ -30,7 +33,7 @@ def render_chat_page():
     with doc_col:
         if st.session_state.current_function in ["c", "d"]:
             chat_upload_dir = os.path.join(UPLOAD_DIR, st.session_state.current_chat_id)
-            os.makedirs(chat_upload_dir, exist_ok=True)
+            # os.makedirs(chat_upload_dir, exist_ok=True)
             
             # 2. 使用 expander 模拟右侧面板，默认收起
             with st.expander("📁 文献上传与管理", expanded=False):
@@ -39,12 +42,31 @@ def render_chat_page():
                 uploaded_files = st.file_uploader("上传您的 Markdown 文献", type=["md"], accept_multiple_files=True, label_visibility="collapsed")
                 
                 if uploaded_files:
+
+                    os.makedirs(chat_upload_dir, exist_ok=True)
+
+                    # 初始化文本切分器和向量模型
+                    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                    embeddings = Settings.get_embeddings()
+
                     for uploaded_file in uploaded_files:
                         file_path = os.path.join(chat_upload_dir, uploaded_file.name)
                         if not os.path.exists(file_path):
+                            file_content = uploaded_file.getvalue()
                             with open(file_path, "wb") as f:
-                                f.write(uploaded_file.getvalue())
-                    st.success(f"成功上传 {len(uploaded_files)} 份文献！")
+                                f.write(file_content)
+                            
+                            # 对新上传的文件进行向量化存入 ChromaDB
+                            text_content = file_content.decode("utf-8", errors="ignore")
+                            chunks = text_splitter.split_text(text_content)
+                            
+                            Chroma.from_texts(
+                                texts=chunks,
+                                embedding=embeddings,
+                                collection_name=st.session_state.current_chat_id,
+                                persist_directory="./chroma_db"
+                            )
+                    st.success(f"成功上传并向量化 {len(uploaded_files)} 份文献！")
                 
                 st.divider() # 分割线
                 
@@ -99,10 +121,12 @@ def render_chat_page():
                                 # 构建文件路径清单
                                 file_list_str = "\n".join([f"- 文件名: {f}, 绝对路径: {os.path.join(chat_upload_dir, f).replace(chr(92), '/')}" for f in available_files])
                                 
+                                # 修改系统隐式提示，引入双轨路由指导
                                 enhanced_prompt += (
-                                    f"\n\n【系统隐式提示】：用户已在当前会话上传了文献，请根据用户需求，优先规划并调用 `literature_read` 工具来分析以下文献。\n"
+                                    f"\n\n【系统隐式提示】：用户已在当前会话上传了文献。请根据用户需求在以下两个工具中选择：\n"
+                                    f"1. 如果用户要求对文献进行全局性概括、总结核心贡献等，请规划并调用 `literature_read`（全文阅读工具）。必须将下方的“绝对路径”填入 file_path 参数中。\n"
+                                    f"2. 如果用户询问文献中的具体细节、特定指标、或者定位某个算法步骤，请必须规划并调用 `literature_rag_search` 工具以节省时间。\n"
                                     f"【当前可用文献清单】:\n{file_list_str}\n"
-                                    f"【重要注意】：调用文献工具时，必须准确将上述清单中的“绝对路径”填入 file_path 参数中。如果需要比较多篇文献，请依次规划多个工具调用步骤。"
                                 )
                     
 

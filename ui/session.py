@@ -1,6 +1,7 @@
 import os
 import json
 import shutil
+import chromadb
 from datetime import datetime
 import streamlit as st
 from ui.config import HISTORY_DIR, UPLOAD_DIR
@@ -42,6 +43,14 @@ def delete_chat(chat_id):
     chat_upload_dir = os.path.join(UPLOAD_DIR, chat_id)
     if os.path.exists(chat_upload_dir):
         shutil.rmtree(chat_upload_dir)
+
+    # 同步删除 ChromaDB 中属于该会话的 Collection
+    try:
+        client = chromadb.PersistentClient(path="./chroma_db")
+        client.delete_collection(name=chat_id)
+    except Exception:
+        # 如果 collection 不存在或报错，忽略即可
+        pass
 
 
 
