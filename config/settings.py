@@ -29,9 +29,9 @@ class Settings:
             # }
 
             # 关闭千问模型深度思考
-            default_headers = {
-                "enable_thinking": "false"
-                }
+            extra_body={
+                "enable_thinking": False
+            }
         )
     
     # 获取向量模型

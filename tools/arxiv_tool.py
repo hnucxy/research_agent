@@ -2,7 +2,9 @@ import arxiv
 import json
 import re
 from .base import BaseTool
+from config.logger import get_logger
 
+logger = get_logger()
 
 class ArxivSearchTool(BaseTool):
     name = "arxiv_search"
@@ -49,7 +51,8 @@ class ArxivSearchTool(BaseTool):
             if not query:
                 return "Arxiv 搜索出错: 未提供有效的 query 参数。"
 
-            print(f"    [Tool] 正在访问 arXiv 搜索: {query} (max: {max_results}, sort: {sort_str})...")
+            # print(f"    [Tool] 正在访问 arXiv 搜索: {query} (max: {max_results}, sort: {sort_str})...")
+            logger.info("    [Tool] 正在访问 arXiv 搜索: %s (max: %s, sort: %s)...", query, max_results, sort_str)
 
             # 映射排序参数
             sort_criterion = arxiv.SortCriterion.Relevance

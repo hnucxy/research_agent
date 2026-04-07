@@ -1,5 +1,7 @@
 from graph.state import AgentState
+from config.logger import get_logger
 
+logger = get_logger()
 
 class MemoryNode:
     """
@@ -9,12 +11,14 @@ class MemoryNode:
     """
 
     def __call__(self, state: AgentState) -> dict:
-        print("\n--- [Memory] Node ---")
+        # print("\n--- [Memory] Node ---")
+        logger.info("--- [Memory] Node ---")
 
         # [Memory Policy]
         # 仅在 Evaluator 认为 Passed 后，才写入长期记忆
         # 这里模拟写入操作
-        print("Writing result to Long-term Memory (VectorDB)...")
+        # print("Writing result to Long-term Memory (VectorDB)...")
+        logger.info("Writing result to Long-term Memory (VectorDB)...")
 
         # 更新步骤索引，准备执行下一步
         new_index = state["current_step_index"] + 1

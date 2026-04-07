@@ -4,9 +4,11 @@ from typing import Literal
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from config.settings import Settings
+from config.logger import get_logger
 from graph.state import AgentState
 from prompts.evaluator_prompts import EVALUATOR_SYSTEM_PROMPT,EVALUATOR_USER_PROMPT
 
+logger = get_logger()
 
 # 定义评估结果的数据结构
 class EvaluationSchema(BaseModel):
@@ -25,7 +27,8 @@ class EvaluatorNode:
         self.parser = JsonOutputParser(pydantic_object=EvaluationSchema)
 
     def __call__(self, state: AgentState) -> dict:
-        print("\n--- [Evaluator] Node ---")
+        # print("\n--- [Evaluator] Node ---")
+        logger.info("--- [Evaluator] Node ---")
         current_step = state["plan"][state["current_step_index"]]
         last_result = state["step_history"][-1] if state.get("step_history") else "无历史"
 
@@ -50,7 +53,8 @@ class EvaluatorNode:
                 "format_instructions": self.parser.get_format_instructions()
             })
         except Exception as e:
-            print(f"    [Error] Evaluator 解析失败: {e}")
+            # print(f"    [Error] Evaluator 解析失败: {e}")
+            logger.exception("[Error] Evaluator 解析失败: %s", e)
             evaluation = {"passed": True, "feedback": "解析失败，启动兜底放行。", "action": "retry_step"}
 
         is_passed = evaluation.get('passed', False)
@@ -59,9 +63,13 @@ class EvaluatorNode:
         # 针对终端显示的格式化逻辑
         display_action = "正常放行(Proceed)" if is_passed else raw_action
 
-        print(f"    [Result] Passed: {is_passed}")
-        print(f"    [Action]: {display_action}")
-        print(f"    [Feedback]: {evaluation.get('feedback')}")
+        # print(f"    [Result] Passed: {is_passed}")
+        # print(f"    [Action]: {display_action}")
+        # print(f"    [Feedback]: {evaluation.get('feedback')}")
+
+        logger.info("    [Result] Passed: %s", is_passed)
+        logger.info("    [Action]: %s", display_action)
+        logger.info("    [Feedback]: %s", evaluation.get('feedback'))
 
         current_retry = state.get("retry_count", 0) + 1
         return {

@@ -202,7 +202,7 @@ def render_chat_page():
                     status.update(label="任务执行完毕！点击查看执行详情", state="complete", expanded=True)
 
                     # 在外部正式展示最终汇总的科研结果
-                    # TODO 输出执行结果偶见输出字体样式过大的情况。
+                    
                     final_answer_display = f"### 执行结果\n{final_output}" if final_output else "未获取到有效结果。"
                     st.markdown(final_answer_display)
 

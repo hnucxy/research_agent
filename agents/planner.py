@@ -5,6 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from config.settings import Settings
+from config.logger import get_logger
 from prompts.planner_prompts import PLANNER_SYSTEM_PROMPT, PLANNER_USER_PROMPT
 
 
@@ -29,6 +30,8 @@ class ReadExecutionPlan(BaseModel):
     steps: List[ReadPlanStep] = Field(description="按照执行顺序排列的步骤列表")
 
 
+# 初始化logger
+logger = get_logger()
 
 # 2. 规划器节点实现
 
@@ -40,7 +43,7 @@ class PlannerNode:
         # self.parser在运行时动态实例化
 
     def __call__(self, state: dict) -> dict:
-        print("\n--- [Planner] Node ---")
+        logger.info("--- [Planner] Node ---")
         user_request = state.get("task_input", "")
 
         # 获取传入的当前功能类型，默认 fallback 为 'c'
@@ -98,7 +101,8 @@ class PlannerNode:
             for i, step in enumerate(plan_dict.get("steps", [])):
                 desc = step.get("task_description", "")
                 tool = step.get("tool_name", "generate")
-                print(f"  步骤 {i + 1}: {desc} [分配工具: {tool}]")
+                # print(f"  步骤 {i + 1}: {desc} [分配工具: {tool}]")
+                logger.info("  步骤 %s : %s [分配工具: %s]", i+1, desc, tool)
                 plan_descriptions.append(desc)
                 assigned_tools.append(tool)
 
@@ -117,7 +121,8 @@ class PlannerNode:
             }
 
         except Exception as e:
-            print(f"[Error] Planner 解析 JSON 失败: {e}")
+            # print(f"[Error] Planner 解析 JSON 失败: {e}")
+            logger.error("[Error] Planner 解析 JSON 失败: %s", e)
             # 基础兜底逻辑，防止图直接崩溃
             return {
                 "plan": [f"直接处理用户任务: {user_request}"],

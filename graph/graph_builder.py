@@ -4,11 +4,14 @@ from .state import AgentState
 from agents.planner import PlannerNode
 from agents.executor import ExecutorNode
 from agents.evaluator import EvaluatorNode
+from config.logger import get_logger
+
+logger = get_logger()
 
 
 def give_up_node(state: AgentState):
     """强制兜底节点：当多次重规划都失败时，直接向用户汇报，切断循环。"""
-    print("\n--- [Give Up] Node ---")
+    logger.info("--- [Give Up] Node ---")
     msg = "经过多次检索与重新规划，未能找到完全符合您要求的文献。这可能是因为相关领域的具体研究较少，或者关键词过于苛刻。建议您放宽检索条件或更换核心关键词后重试。"
 
     # 直接覆盖 step_history，前端会将其作为最终输出抓取
@@ -61,23 +64,23 @@ def build_graph():
         needs_replan = False
 
         if retry_count >= 3:
-            print("    [System] 局部检索重试达上限，准备触发全局重规划 (Replan)！")
+            logger.warning("    [System] 局部检索重试达上限，准备触发全局重规划 (Replan)！")
             needs_replan = True
         elif result.get("action") == "replan":
-            print("    [System] 评估专家主动要求重规划。")
+            logger.warning("    [System] 评估专家主动要求重规划。")
             needs_replan = True
 
         # 3. 集中检查全局重规划次数 (防死循环)
         if needs_replan:
             if replan_count >= 1:
-                print("    [System] 全局重规划次数达上限(确认无匹配文献)，强制结束调研并汇报失败！")
+                logger.warning("    [System] 全局重规划次数达上限(确认无匹配文献)，强制结束调研并汇报失败！")
                 return "give_up"  # 指向我们上次新增的 give_up_node
             else:
-                print(f"    [System] 触发第 {replan_count + 1} 次 Re-plan，回退到Planner！")
+                logger.warning(f"    [System] 触发第 {replan_count + 1} 次 Re-plan，回退到Planner！")
                 return "replan"
 
         # 4. 如果既没通过，也不需要重规划，就乖乖回去重试
-        print("    [System] 评估未通过，触发 Self-Refine 回退 Executor重试。")
+        logger.warning("    [System] 评估未通过，触发 Self-Refine 回退 Executor重试。")
         return "retry"
 
     workflow.add_conditional_edges(

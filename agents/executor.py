@@ -1,6 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 
 from config.settings import Settings
+from config.logger import get_logger
 from graph.state import AgentState
 from tools.academic_writer_tool import AcademicWriterTool
 from tools.arxiv_tool import ArxivSearchTool
@@ -8,6 +9,7 @@ from tools.literature_reader_tool import LiteratureReaderTool
 from tools.literature_rag_tool import LiteratureRagTool
 from prompts.executor_prompts import TOOL_EXTRACTION_PROMPT,TEXT_GENERATION_PROMPT
 
+logger = get_logger()
 
 class ExecutorNode:
     def __init__(self):
@@ -22,7 +24,7 @@ class ExecutorNode:
         }
 
     def __call__(self, state: AgentState) -> dict:
-        print("\n--- [Executor] Node ---")
+        logger.info("--- [Executor] Node ---")
         current_index = state["current_step_index"]
         current_step = state["plan"][current_index]
         tool_name = state["planned_tools"][current_index]
@@ -35,7 +37,8 @@ class ExecutorNode:
             feedback = f"\n【⚠️上一次执行未通过，评估专家给出的修正建议】: {eval_res.get('feedback')}\n请务必参考此建议调整本次的工具参数或生成逻辑！"
 
 
-        print(f"正在执行步骤: {current_step}")
+        # print(f"正在执行步骤: {current_step}")
+        logger.info("正在执行步骤: %s", current_step)
         context_raw = "\n".join(state.get("step_history", []))
         # 预处理上下文
         context_str = context_raw if context_raw else "无"
@@ -46,7 +49,8 @@ class ExecutorNode:
         # ==========================================
         if tool_name in self.tools:
             tool = self.tools[tool_name]
-            print(f"    🛠️ 准备调用外部工具: [{tool_name}]")
+            # print(f"    🛠️ 准备调用外部工具: [{tool_name}]")
+            logger.info("    🛠️ 准备调用外部工具: [%s]", tool_name)
 
             # 获取全局原始任务
             original_task = state.get("task_input", "")
@@ -69,7 +73,8 @@ class ExecutorNode:
                 "feedback": feedback
             })
             tool_input = query_res.content.strip()
-            print(f"    解析出的工具参数: [{tool_input}]")
+            # print(f"    解析出的工具参数: [{tool_input}]")
+            logger.info("    解析出的工具参数: [{%s}]", tool_input)
 
             # 统一执行接口
             try:
@@ -79,7 +84,8 @@ class ExecutorNode:
                 output = f"【{tool_name} 执行失败】: {str(e)}"
 
         elif tool_name == "generate":
-            print(f"    ✍️ 执行文本生成/总结/推理任务...")
+            # print(f"    ✍️ 执行文本生成/总结/推理任务...")
+            logger.info("    ✍️ 执行文本生成/总结/推理任务...")
             #生成任务提示词的解耦
             prompt_template = ChatPromptTemplate.from_template(TEXT_GENERATION_PROMPT)
             chain = prompt_template | self.llm
@@ -93,11 +99,12 @@ class ExecutorNode:
             output = res.content
 
         else:
-            print(f"    ⚠️ 警告: 未知工具 '{tool_name}'")
+            # print(f"    ⚠️ 警告: 未知工具 '{tool_name}'")
+            logger.warning("    ⚠️ 警告: 未知工具 '%s'", tool_name)
             output = f"【系统提示】: 无法执行。Planner 分配了未注册的工具 '{tool_name}'。"
 
         # print(f"    步骤输出预览: {output[:100]}...\n")
-        print(f"     步骤输出：此处省略，方便查看流程")
+        logger.info("     步骤输出：%s", output)
 
         return {
             "step_history": [f"Step: {current_step}\nTool: {tool_name}\nResult: {output}"]
