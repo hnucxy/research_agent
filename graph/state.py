@@ -6,6 +6,9 @@ class AgentState(TypedDict):
     """
     全局状态对象，在所有节点间传递。
     """
+    # 当前所属的功能模块代码 (如 'a':检索, 'b':撰写, 'c':阅读, 'd':功能四)
+    current_function: str
+
     # 原始用户输入
     task_input: str
 

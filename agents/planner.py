@@ -7,53 +7,65 @@ from pydantic import BaseModel, Field
 from config.settings import Settings
 from prompts.planner_prompts import PLANNER_SYSTEM_PROMPT, PLANNER_USER_PROMPT
 
-# ==========================================
-# 1. 依然保留严格的工具池和数据结构约束
-# ==========================================
-AvailableTools = Literal[
-    "arxiv_search",
-    "generate",
-    "academic_write",
-    "literature_read",
-    "literature_rag_search"
-    # "web_search",
-    # "data_analysis"
-]
 
+# 1. 动态工具池与数据结构约束 根据当前对话种类进行限定
+# 针对检索、撰写等非阅读功能的工具池（剔除 reading 和 rag）
+NonReadTools = Literal["arxiv_search", "academic_write", "generate"]
+# 包含所有工具的全量工具池
+ReadTools = Literal["arxiv_search", "academic_write", "generate", "literature_read", "literature_rag_search"]
 
-class PlanStep(BaseModel):
+class NonReadPlanStep(BaseModel):
     task_description: str = Field(description="该步骤需要完成的具体任务描述")
-    tool_name: AvailableTools = Field(description="执行此步骤必须调用的工具。如果不需外部工具请选 'generate'")
+    tool_name: NonReadTools = Field(description="执行此步骤必须调用的工具。如果不需外部工具请选 'generate'")
+
+class ReadPlanStep(BaseModel):
+    task_description: str = Field(description="该步骤需要完成的具体任务描述")
+    tool_name: ReadTools = Field(description="执行此步骤必须调用的工具。如果不需外部工具请选 'generate'")
+
+class NonReadExecutionPlan(BaseModel):
+    steps: List[NonReadPlanStep] = Field(description="按照执行顺序排列的步骤列表")
+
+class ReadExecutionPlan(BaseModel):
+    steps: List[ReadPlanStep] = Field(description="按照执行顺序排列的步骤列表")
 
 
-class ExecutionPlan(BaseModel):
-    steps: List[PlanStep] = Field(description="按照执行顺序排列的步骤列表")
 
-
-# ==========================================
 # 2. 规划器节点实现
-# ==========================================
+
 class PlannerNode:
     def __init__(self):
         # 规划节点，严谨起见 temperature 依然设为较低值
         self.llm = Settings.get_llm(temperature=0.1)
 
-        # 核心改动：使用 JsonOutputParser 替代 with_structured_output
-        self.parser = JsonOutputParser(pydantic_object=ExecutionPlan)
+        # self.parser在运行时动态实例化
 
     def __call__(self, state: dict) -> dict:
         print("\n--- [Planner] Node ---")
         user_request = state.get("task_input", "")
 
+        # 获取传入的当前功能类型，默认 fallback 为 'c'
+        current_func = state.get("current_function", "c")
+
+        # 根据对话种类动态选择解析器，从根源限制大模型能看到的 JSON Schema 工具枚举
+        if current_func in ["a", "b"]:
+            parser = JsonOutputParser(pydantic_object=NonReadExecutionPlan)
+            mode_prompt_addon = "\n\n【动态模式约束】：当前为非文献阅读模式，绝对禁止分配 `literature_read` 或 `literature_rag_search` 工具，请仅从输出格式要求的 Enum 工具列表中进行选择。"
+        else:
+            parser = JsonOutputParser(pydantic_object=ReadExecutionPlan)
+            mode_prompt_addon = ""
+
+        # 动态拼接最终的 System Prompt
+        dynamic_system_prompt = PLANNER_SYSTEM_PROMPT + mode_prompt_addon
+
         # 使用导入的常量组装 prompt
         prompt = ChatPromptTemplate.from_messages([
-            ("system", PLANNER_SYSTEM_PROMPT),
+            ("system", dynamic_system_prompt),
             ("user", PLANNER_USER_PROMPT)
         ])
 
         # 构建处理链：Prompt -> LLM -> JSON解析器
-        chain = prompt | self.llm | self.parser
-        # 提取历史教训：不再使用原始的冗长执行日志，而是直接提取 Evaluator 的评估反馈
+        chain = prompt | self.llm | parser
+        # 提取历史教训：直接提取 Evaluator 的评估反馈
         eval_res = state.get("evaluation_result", {})
         replan_count = state.get("replan_count", 0)
 
@@ -76,7 +88,7 @@ class PlannerNode:
                 "chat_history": state.get("chat_history", "无"),
                 "task": user_request,
                 "step_history": step_history_str,  # 传入失败教训
-                "format_instructions": self.parser.get_format_instructions()
+                "format_instructions": parser.get_format_instructions()
             })
 
             plan_descriptions = []

@@ -7,15 +7,13 @@ load_dotenv()
 class Settings:
     # 配置大语言模型API
     API_KEY = os.getenv("API_KEY")
-    BASE_URL = "https://api.deepseek.com"
-    # BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
-    # BASE_URL = "https://ai.zhansi.top/v1"
-    MODEL_NAME = "deepseek-chat" # 或 gpt-5.2  或doubao-seed-2-0-lite-260215
+    BASE_URL = os.getenv("BASE_URL")
+    MODEL_NAME = os.getenv("MODEL_NAME")
 
     # 配置向量模型API
     EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY")
-    EMBEDDING_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    EMBEDDING_MODEL_NAME = "text-embedding-v4"
+    EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL")
+    EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME")
 
     @classmethod
     def get_llm(cls, temperature=0.0):
@@ -29,6 +27,11 @@ class Settings:
             #     "User-Agent": "curl/7.68.0",
             #     "Connection": "close"
             # }
+
+            # 关闭千问模型深度思考
+            default_headers = {
+                "enable_thinking": "false"
+                }
         )
     
     # 获取向量模型
