@@ -80,14 +80,45 @@ def render_chat_page():
                         with open(file_path, "w", encoding="utf-8") as f:
                             f.write(text_content)
                         
-                        # 向量化存入 ChromaDB
+                        # 向量化存入全局 ChromaDB，图文混合 Multi-Vector 逻辑
                         chunks = text_splitter.split_text(text_content)
-                        Chroma.from_texts(
-                            texts=chunks,
-                            embedding=embeddings,
-                            collection_name=st.session_state.current_chat_id,
-                            persist_directory="./chroma_db"
-                        )
+                        docs_to_insert = []
+                        metadatas = []
+
+                        for chunk in chunks:
+                            # 1. 文本块本身入库
+                            docs_to_insert.append(chunk)
+                            metadatas.append({
+                                "chat_id": st.session_state.current_chat_id, 
+                                "file_name": uploaded_file.name,
+                                "type": "text"
+                            })
+
+                            # 2. 利用正则提取该文本块内包含的图片路径 (匹配 ![...](...))
+                            img_paths = re.findall(r'!\[.*?\]\((.*?)\)', chunk)
+                            for img_path in img_paths:
+                                if os.path.exists(img_path):
+                                    # 将图片带上专属前缀，喂给自定义的 Multimodal Embeddings
+                                    docs_to_insert.append(f"image://{img_path}")
+                                    
+                                    # 核心关联：记录这是张图片，且把它所在的“上下文(context)”一同塞入元数据
+                                    metadatas.append({
+                                        "chat_id": st.session_state.current_chat_id,
+                                        "file_name": uploaded_file.name,
+                                        "type": "image",
+                                        "image_path": img_path,  # 为未来读取转 Base64 做准备
+                                        "context": chunk         # 图片关联的上下文段落
+                                    })
+                        
+                        if docs_to_insert:
+                            Chroma.from_texts(
+                                texts=docs_to_insert,
+                                metadatas=metadatas,
+                                embedding=embeddings,
+                                # 固定全局 Collection 名称取代会话隔离
+                                collection_name="global_research_knowledge",
+                                persist_directory="./chroma_db"
+                            )
                         
                         # 记录哈希到全局字典中
                         register_file(file_hash, file_path)

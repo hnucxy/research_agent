@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from utils.multimodal_embedding import DashScopeMultiModalEmbeddings
 
 load_dotenv()
 
@@ -34,16 +35,25 @@ class Settings:
             }
         )
     
-    # 获取向量模型
+    # # 获取向量模型
+    # @classmethod
+    # def get_embeddings(cls):
+    #     return OpenAIEmbeddings(
+    #         model=cls.EMBEDDING_MODEL_NAME,
+    #         api_key=cls.EMBEDDING_API_KEY,
+    #         base_url=cls.EMBEDDING_BASE_URL,
+    #         # 绕过本地检查
+    #         check_embedding_ctx_length=False,
+    #         # 遵守阿里云单词请求数量上限
+    #         chunk_size=10,
+    #         max_retries=3
+    #     )
+
+    # 阿里多模态向量模型
     @classmethod
     def get_embeddings(cls):
-        return OpenAIEmbeddings(
-            model=cls.EMBEDDING_MODEL_NAME,
+        # 切换为阿里多模态向量模型
+        return DashScopeMultiModalEmbeddings(
             api_key=cls.EMBEDDING_API_KEY,
-            base_url=cls.EMBEDDING_BASE_URL,
-            # 绕过本地检查
-            check_embedding_ctx_length=False,
-            # 遵守阿里云单词请求数量上限
-            chunk_size=10,
-            max_retries=3
-        )
+            model=cls.EMBEDDING_MODEL_NAME
+            )

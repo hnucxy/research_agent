@@ -45,22 +45,36 @@ class LiteratureRagTool(BaseTool):
                 return "RAG 检索执行失败：query 参数不能为空。"
 
             # 获取当前会话 ID 作为 collection_name
-            chat_id = st.session_state.current_chat_id
+            # chat_id = st.session_state.current_chat_id
             
-            # 连接 Chroma 数据库
+            # 连接全局 Chroma 数据库
             vectorstore = Chroma(
-                collection_name=chat_id,
+                collection_name="global_research_knowledge",
                 embedding_function=self.embeddings,
                 persist_directory="./chroma_db"
             )
 
             # 执行相似度检索
+            # 注意：此处未加 filter 参数，实现了真正的“全局图文检索”。如果以后想加入当前会话限制，可以传入 filter={"chat_id": chat_id}
             docs = vectorstore.similarity_search(query, k=5)
             if not docs:
                 return "未检索到相关内容，可能是因为用户的问题偏离了现有文献，或文献尚未完成向量化。"
 
-            # 组装 Context
-            context = "\n\n---\n\n".join([doc.page_content for doc in docs])
+            # 【核心修改】：重组 Context 
+            context_parts = []
+            for doc in docs:
+                # 判断检索命中到了文本还是图片
+                if doc.metadata.get("type") == "image":
+                    img_path = doc.metadata.get("image_path", "")
+                    context_chunk = doc.metadata.get("context", "")
+                    # 【为下一阶段铺路】：
+                    # 现在返回纯文本给 LLM。等到了下个阶段将 LLM 换成视觉多模态大模型时，
+                    # 可以在 Executor 处拦截 [检索到图片] 标识，利用 base64 组装你提供的多模态 Message
+                    context_parts.append(f"【图文匹配项】检索到关联图片：{img_path}\n该图片附近的文献上下文：{context_chunk}")
+                else:
+                    context_parts.append(f"【文本片段】：{doc.page_content}")
+
+            context = "\n\n---\n\n".join(context_parts)
 
             # 交给 LLM 进行抽取总结
             prompt_template = ChatPromptTemplate.from_template(RAG_QA_PROMPT)
