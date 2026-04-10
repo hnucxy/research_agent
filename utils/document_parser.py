@@ -1,5 +1,6 @@
 import os
 import pymupdf4llm
+from utils.exceptions import DocumentParseError
 
 def parse_pdf_to_markdown(pdf_bytes: bytes, output_dir: str, base_name: str) -> str:
     """
@@ -23,6 +24,9 @@ def parse_pdf_to_markdown(pdf_bytes: bytes, output_dir: str, base_name: str) -> 
             image_format="png"
         )
         return md_text
+    except Exception as e:
+        # 抛出自定义文档解析异常
+        raise DocumentParseError(f"PDF 转换为 Markdown 失败: {str(e)}")
     finally:
         # 解析完毕后清理临时的 PDF 文件
         if os.path.exists(temp_pdf_path):

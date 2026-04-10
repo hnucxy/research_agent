@@ -11,6 +11,7 @@ from ui.config import UPLOAD_DIR, FUNC_MAP
 from ui.session import save_chat
 from utils.file_utils import get_file_hash, is_file_duplicate, register_file, get_file_path_from_hash, get_all_registered_files
 from utils.document_parser import parse_pdf_to_markdown
+from utils.exceptions import DocumentParseError
 
 def render_markdown_with_images(text: str) -> str:
     """提取 Markdown 中的本地路径并将其替换为 Base64 以供 Streamlit 渲染"""
@@ -88,7 +89,14 @@ def render_chat_page():
                         # 新文件解析与存入 Chroma 逻辑保持不变...
                         if file_ext == "pdf":
                             with st.spinner(f"正在解析 `{uploaded_file.name}` 并提取图片..."):
-                                text_content = parse_pdf_to_markdown(file_bytes, chat_upload_dir, base_name)
+                                try:
+                                    text_content = parse_pdf_to_markdown(file_bytes, chat_upload_dir, base_name)
+                                except DocumentParseError as e:
+                                    st.error(f"解析被跳过: {str(e)}")
+                                    continue  # 抛出异常后跳过当前文件，继续处理用户上传的下一个文件
+                                except Exception as e:
+                                    st.error(f"未知错误导致解析失败: {str(e)}")
+                                    continue
                         else:
                             text_content = file_bytes.decode("utf-8", errors="ignore")
                         
@@ -273,5 +281,14 @@ def render_chat_page():
                     save_chat(st.session_state.current_chat_id, st.session_state.messages)
 
                 except Exception as e:
-                    status.update(label="执行过程中发生错误", state="error", expanded=True)
-                    st.error(f"Error: {str(e)}")
+                    status.update(label="执行过程中发生系统级错误", state="error", expanded=True)
+                    error_msg = f"**系统异常终止**: {str(e)}\n\n*请调整您的提示词或检查配置后重新输入。*"
+                    st.error(error_msg)
+                    
+                    # 将异常信息作为助手的回复强制存入会话历史，这样刷新或进行下一次对话时，上文不会断裂，前端依然能正常处理下一次输入
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": error_msg,
+                        "process_logs": process_logs  # 保留崩溃前已经打印出来的中间步骤日志
+                    })
+                    save_chat(st.session_state.current_chat_id, st.session_state.messages)

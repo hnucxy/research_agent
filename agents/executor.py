@@ -8,6 +8,7 @@ from tools.arxiv_tool import ArxivSearchTool
 from tools.literature_reader_tool import LiteratureReaderTool
 from tools.literature_rag_tool import LiteratureRagTool
 from prompts.executor_prompts import TOOL_EXTRACTION_PROMPT,TEXT_GENERATION_PROMPT
+from utils.exceptions import ToolExecutionError, ToolExecutionTimeout
 
 logger = get_logger()
 
@@ -15,7 +16,7 @@ class ExecutorNode:
     def __init__(self):
         self.llm = Settings.get_llm(temperature=0.1)
 
-        # 注册工具池（未来随意扩充，Executor 逻辑一字都不用改）
+        # 注册工具池（未来随意扩充）
         self.tools = {
             "arxiv_search": ArxivSearchTool(), # arxiv文献检索工具
             "academic_write": AcademicWriterTool(), # 学术内容写作工具
@@ -44,9 +45,9 @@ class ExecutorNode:
         context_str = context_raw if context_raw else "无"
         # output = ""
 
-        # ==========================================
+        
         # 通用路由与执行逻辑
-        # ==========================================
+        
         if tool_name in self.tools:
             tool = self.tools[tool_name]
             # print(f"    🛠️ 准备调用外部工具: [{tool_name}]")
@@ -78,10 +79,19 @@ class ExecutorNode:
 
             # 统一执行接口
             try:
+                # 未来如果加入了超时控制，可以抛出 ToolExecutionTimeout
                 tool_result = tool.run(tool_input)
                 output = f"【{tool_name} 执行结果】:\n{tool_result}"
+            except ToolExecutionTimeout as te:
+                logger.error("工具 %s 执行超时: %s", tool_name, te)
+                output = f"【{tool_name} 执行超时】: 请精简参数或稍后再试。"
+            except ToolExecutionError as te:
+                logger.error("工具 %s 执行失败: %s", tool_name, te)
+                output = f"【{tool_name} 执行失败】: {str(te)}"
             except Exception as e:
-                output = f"【{tool_name} 执行失败】: {str(e)}"
+                # 兜底捕获未知错误
+                logger.exception("工具 %s 发生未知的系统异常", tool_name)
+                output = f"【{tool_name} 发生系统级错误】: {str(e)}"
 
         elif tool_name == "generate":
             # print(f"    ✍️ 执行文本生成/总结/推理任务...")

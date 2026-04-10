@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from config.settings import Settings
 from config.logger import get_logger
 from prompts.planner_prompts import PLANNER_SYSTEM_PROMPT, PLANNER_USER_PROMPT
+from utils.exceptions import AgentPlanningError
 
 
 # 1. 动态工具池与数据结构约束 根据当前对话种类进行限定
@@ -122,8 +123,9 @@ class PlannerNode:
             }
 
         except Exception as e:
-            # print(f"[Error] Planner 解析 JSON 失败: {e}")
+            
             logger.error("[Error] Planner 解析 JSON 失败: %s", e)
+            # raise AgentPlanningError(f"规划器解析大模型输出失败: {e}")
             # 基础兜底逻辑，防止图直接崩溃
             return {
                 "plan": [f"直接处理用户任务: {user_request}"],

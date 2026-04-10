@@ -6,6 +6,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_chroma import Chroma
 from tools.base import BaseTool
 from config.settings import Settings
+from utils.exceptions import VectorDBConnectionError, ToolExecutionError
 
 def encode_image(image_path):
     """将本地图片文件转换为 Base64 编码"""
@@ -44,11 +45,16 @@ class LiteratureRagTool(BaseTool):
                 return "RAG 检索执行失败：query 参数不能为空。"
 
             # 连接全局 Chroma 数据库
-            vectorstore = Chroma(
-                collection_name="global_research_knowledge",
-                embedding_function=self.embeddings,
-                persist_directory="./chroma_db"
-            )
+            try:
+                vectorstore = Chroma(
+                    collection_name="global_research_knowledge",
+                    embedding_function=self.embeddings,
+                    persist_directory="./chroma_db"
+                )
+                docs = vectorstore.similarity_search(query, k=5)
+            except Exception as db_err:
+                # 包装为自定义的向量库异常抛出
+                raise VectorDBConnectionError(f"ChromaDB 连接或检索失败: {db_err}")
 
             # 执行相似度检索
             docs = vectorstore.similarity_search(query, k=5)
@@ -114,6 +120,8 @@ class LiteratureRagTool(BaseTool):
             return final_answer
 
         except json.JSONDecodeError:
-            return "RAG 工具出错: 参数解析失败，请确保输入的是合法的 JSON 字符串。"
+            raise ToolExecutionError("RAG 工具出错: 参数解析失败，请确保输入的是合法的 JSON 字符串。")
+        except VectorDBConnectionError as ve:
+            return str(ve) # 让外层 Executor 捕获或直接返回给大模型
         except Exception as e:
-            return f"RAG 工具出错: {str(e)}"
+            raise ToolExecutionError(f"RAG 工具内部逻辑出错: {str(e)}")
