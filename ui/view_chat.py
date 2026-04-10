@@ -7,6 +7,8 @@ from config.settings import Settings
 from graph.graph_builder import build_graph
 from ui.config import UPLOAD_DIR, FUNC_MAP
 from ui.session import save_chat
+from utils.file_utils import get_file_hash, is_file_duplicate, register_file
+from utils.document_parser import parse_pdf_to_markdown
 
 def render_chat_page():
     # 渲染标题
@@ -33,40 +35,66 @@ def render_chat_page():
     with doc_col:
         if st.session_state.current_function in ["c", "d"]:
             chat_upload_dir = os.path.join(UPLOAD_DIR, st.session_state.current_chat_id)
-            # os.makedirs(chat_upload_dir, exist_ok=True)
             
-            # 2. 使用 expander 模拟右侧面板，默认收起
             with st.expander("📁 文献上传与管理", expanded=False):
                 st.write("📄 **上传文献**")
-                # 隐藏 label 节省空间
-                uploaded_files = st.file_uploader("上传您的 Markdown 文献", type=["md"], accept_multiple_files=True, label_visibility="collapsed")
+                
+                # 【修改点 1】：扩展 type 限制，加入 "pdf"
+                uploaded_files = st.file_uploader(
+                    "上传您的文献", 
+                    type=["md", "pdf"], 
+                    accept_multiple_files=True, 
+                    label_visibility="collapsed"
+                )
                 
                 if uploaded_files:
 
                     os.makedirs(chat_upload_dir, exist_ok=True)
 
-                    # 初始化文本切分器和向量模型
                     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                     embeddings = Settings.get_embeddings()
+                    success_count = 0
 
                     for uploaded_file in uploaded_files:
-                        file_path = os.path.join(chat_upload_dir, uploaded_file.name)
-                        if not os.path.exists(file_path):
-                            file_content = uploaded_file.getvalue()
-                            with open(file_path, "wb") as f:
-                                f.write(file_content)
-                            
-                            # 对新上传的文件进行向量化存入 ChromaDB
-                            text_content = file_content.decode("utf-8", errors="ignore")
-                            chunks = text_splitter.split_text(text_content)
-                            
-                            Chroma.from_texts(
-                                texts=chunks,
-                                embedding=embeddings,
-                                collection_name=st.session_state.current_chat_id,
-                                persist_directory="./chroma_db"
-                            )
-                    st.success(f"成功上传并向量化 {len(uploaded_files)} 份文献！")
+                        file_bytes = uploaded_file.getvalue()
+                        
+                        # 【修改点 2】：全局文件哈希去重拦截
+                        file_hash = get_file_hash(file_bytes)
+                        if is_file_duplicate(file_hash):
+                            st.warning(f"⚠️ 文件 `{uploaded_file.name}` 已存在于全局库中，跳过解析与向量化。")
+                            continue
+
+                        # 获取文件后缀和基础名
+                        file_ext = uploaded_file.name.split('.')[-1].lower()
+                        base_name = os.path.splitext(uploaded_file.name)[0]
+                        file_path = os.path.join(chat_upload_dir, f"{base_name}.md")
+                        
+                        # 【修改点 3】：分流处理 MD 和 PDF
+                        if file_ext == "pdf":
+                            with st.spinner(f"正在使用 PyMuPDF 解析 `{uploaded_file.name}` 并提取图片..."):
+                                text_content = parse_pdf_to_markdown(file_bytes, chat_upload_dir, base_name)
+                        else:
+                            text_content = file_bytes.decode("utf-8", errors="ignore")
+                        
+                        # 将最终获得的 Markdown 内容写入本地保存
+                        with open(file_path, "w", encoding="utf-8") as f:
+                            f.write(text_content)
+                        
+                        # 向量化存入 ChromaDB
+                        chunks = text_splitter.split_text(text_content)
+                        Chroma.from_texts(
+                            texts=chunks,
+                            embedding=embeddings,
+                            collection_name=st.session_state.current_chat_id,
+                            persist_directory="./chroma_db"
+                        )
+                        
+                        # 记录哈希到全局字典中
+                        register_file(file_hash, file_path)
+                        success_count += 1
+                        
+                    if success_count > 0:
+                        st.success(f"成功上传、解析并向量化 {success_count} 份文献！")
                 
                 st.divider() # 分割线
                 

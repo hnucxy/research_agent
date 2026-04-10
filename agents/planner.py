@@ -43,6 +43,7 @@ class PlannerNode:
         # self.parser在运行时动态实例化
 
     def __call__(self, state: dict) -> dict:
+        logger.info("")
         logger.info("--- [Planner] Node ---")
         user_request = state.get("task_input", "")
 
