@@ -34,3 +34,10 @@ def register_file(file_hash: str, file_path: str):
     
     with open(REGISTRY_FILE, "w", encoding="utf-8") as f:
         json.dump(registry, f, ensure_ascii=False, indent=2)
+
+def get_all_registered_files() -> dict:
+    """获取全局注册表中的所有文件"""
+    if not os.path.exists(REGISTRY_FILE):
+        return {}
+    with open(REGISTRY_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)

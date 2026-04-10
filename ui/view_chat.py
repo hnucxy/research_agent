@@ -9,7 +9,7 @@ from config.settings import Settings
 from graph.graph_builder import build_graph
 from ui.config import UPLOAD_DIR, FUNC_MAP
 from ui.session import save_chat
-from utils.file_utils import get_file_hash, is_file_duplicate, register_file, get_file_path_from_hash
+from utils.file_utils import get_file_hash, is_file_duplicate, register_file, get_file_path_from_hash, get_all_registered_files
 from utils.document_parser import parse_pdf_to_markdown
 
 def render_markdown_with_images(text: str) -> str:
@@ -135,33 +135,37 @@ def render_chat_page():
                 st.divider()
                 
                 # 渲染带有 Checkbox 的文献库
-                available_files = os.listdir(chat_upload_dir) if os.path.exists(chat_upload_dir) else []
-                selected_files_for_agent = []  # 收集当前被勾选的文献
+                global_files = get_all_registered_files()
+                selected_files_for_agent = []  # 收集当前被勾选的文献信息 [{"name": "xxx", "path": "xxx"}]
                 
-                if available_files:
-                    # 过滤只显示 md 文件
-                    md_files = [f for f in available_files if f.endswith('.md')]
-                    if md_files:
-                        st.write("📚 **文献库 (请勾选需要分析的文献)**")
-                        for f_name in md_files:
-                            col1, col2 = st.columns([4, 1])
-                            
-                            # 利用 session_state 保存每个复选框的勾选状态
-                            cb_key = f"cb_{st.session_state.current_chat_id}_{f_name}"
-                            if cb_key not in st.session_state:
-                                st.session_state[cb_key] = True  # 默认新文件自动勾选
-                            
-                            is_checked = col1.checkbox(f"`{f_name}`", value=st.session_state[cb_key], key=cb_key)
-                            if is_checked:
-                                selected_files_for_agent.append(f_name)
-                            
-                            btn_key = f"del_{st.session_state.current_chat_id}_{f_name}"
-                            if col2.button("🗑️", key=btn_key, help="删除此文献"):
-                                file_to_delete = os.path.join(chat_upload_dir, f_name)
-                                if os.path.exists(file_to_delete):
-                                    os.remove(file_to_delete)
-                                st.rerun()
-
+                # 提取所有存在的 md 文件路径 (使用字典去重，防止 hash 不同但路径相同的极端情况)
+                unique_md_files = {} 
+                for f_hash, f_path in global_files.items():
+                    if f_path.endswith('.md') and os.path.exists(f_path):
+                        unique_md_files[f_path] = os.path.basename(f_path)
+                
+                if unique_md_files:
+                    st.write("📚 **全局文献库 (请勾选需要分析的文献)**")
+                    for f_path, f_name in unique_md_files.items():
+                        col1, col2 = st.columns([4, 1])
+                        
+                        # 利用 session_state 保存每个复选框的勾选状态，采用文件路径作为唯一 key
+                        cb_key = f"cb_global_{f_path}"
+                        if cb_key not in st.session_state:
+                            # 如果该文献属于当前会话上传的，默认勾选；否则默认不勾选，避免全局文件过多污染上下文
+                            is_in_current_chat = st.session_state.current_chat_id in f_path
+                            st.session_state[cb_key] = is_in_current_chat
+                        
+                        is_checked = col1.checkbox(f"`{f_name}`", value=st.session_state[cb_key], key=cb_key)
+                        if is_checked:
+                            selected_files_for_agent.append({"name": f_name, "path": f_path})
+                        
+                        btn_key = f"del_global_{f_path}"
+                        if col2.button("🗑️", key=btn_key, help="删除此物理文献"):
+                            # 从物理硬盘中删除文献
+                            if os.path.exists(f_path):
+                                os.remove(f_path)
+                            st.rerun()
     # 底部聊天输入框
     placeholder_text = "请输入你的科研需求..."
     if prompt := st.chat_input(placeholder_text):
@@ -185,16 +189,15 @@ def render_chat_page():
                     
                     # 只向Agent暴露被勾选的文献
                     if st.session_state.current_function in ["c", "d"]:
-                        chat_upload_dir = os.path.join(UPLOAD_DIR, st.session_state.current_chat_id)
-                        if os.path.exists(chat_upload_dir) and selected_files_for_agent:
-                            # 仅针对勾选的文献构建清单
-                            file_list_str = "\n".join([f"- 文件名: {f}, 绝对路径: {os.path.join(chat_upload_dir, f).replace(chr(92), '/')}" for f in selected_files_for_agent])
+                        if selected_files_for_agent:
+                            # 提取选中的文献的真实绝对路径，并转义反斜杠防止 JSON 解析出错
+                            file_list_str = "\n".join([f"- 文件名: {f['name']}, 绝对路径: {os.path.abspath(f['path']).replace(chr(92), '/')}" for f in selected_files_for_agent])
                             
                             enhanced_prompt += (
-                                f"\n\n【系统隐式提示】：用户已在当前会话的文献库中**勾选**了以下文献。请根据用户需求在以下两个工具中选择：\n"
+                                f"\n\n【系统隐式提示】：用户已在全局文献库中**勾选**了以下文献。请根据用户需求在以下两个工具中选择：\n"
                                 f"1. 如果用户要求对文献进行全局性概括、总结核心贡献等，请规划并调用 `literature_read`（全文阅读工具）。必须将下方的“绝对路径”填入 file_path 参数中。\n"
                                 f"2. 如果用户询问文献中的具体细节、特定指标、或者定位某个算法步骤，请必须规划并调用 `literature_rag_search` 工具以节省时间。\n"
-                                f"【当前用户勾选的文献清单】:\n{file_list_str}\n"
+                                f"【当前用户勾选的全局文献清单】:\n{file_list_str}\n"
                             )
 
                     # 初始化 Agent 状态
