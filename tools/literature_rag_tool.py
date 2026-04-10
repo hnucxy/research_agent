@@ -1,29 +1,28 @@
 import json
 import re
-import streamlit as st
-from langchain_core.prompts import ChatPromptTemplate
+import os
+import base64
+from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_chroma import Chroma
 from tools.base import BaseTool
 from config.settings import Settings
 
-RAG_QA_PROMPT = """你是一个专业的学术问答助手。请基于以下检索到的文献片段，准确回答用户的问题。
+def encode_image(image_path):
+    """将本地图片文件转换为 Base64 编码"""
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
 
-【检索到的文献片段】：
-{context}
-
-【用户问题】：
-{user_query}
-
+RAG_SYSTEM_PROMPT = """你是一个专业的学术问答助手。请基于以下检索到的文献片段和图片，准确回答用户的问题。
 【严格要求】：
-1. 你的所有回答必须以提供的【文献片段】为事实依据。
-2. 如果提供的片段中找不到答案，请明确说明“文献中未提及”，切勿自行捏造。
+1. 你的所有回答必须以提供的文献片段和图片为事实依据。
+2. 如果提供的片段或图片中找不到答案，请明确说明“文献中未提及”，切勿自行捏造。
 3. 请保持客观、严谨的学术风格。直接输出结论或提取出的具体细节，不要大段重复原文。"""
 
 class LiteratureRagTool(BaseTool):
     name = "literature_rag_search"
     description = (
-        "用于在已上传的文献中进行精准的事实检索、指标提取或特定方法查询。\n"
-        "当用户询问文献里的具体细节（如参数、算法某一步骤、某个实验结果）时使用。\n"
+        "用于在已上传的文献中进行精准的事实检索、指标提取或特定图表内容的查询。\n"
+        "当用户询问文献里的具体细节（如参数、图表结果、某个实验现象）时使用。\n"
         "输入参数必须是一个合法的 JSON 字符串，包含以下字段：\n"
         "- query: (必填) 用户的检索问题或需要提取的具体细节描述。"
     )
@@ -44,9 +43,6 @@ class LiteratureRagTool(BaseTool):
             if not query:
                 return "RAG 检索执行失败：query 参数不能为空。"
 
-            # 获取当前会话 ID 作为 collection_name
-            # chat_id = st.session_state.current_chat_id
-            
             # 连接全局 Chroma 数据库
             vectorstore = Chroma(
                 collection_name="global_research_knowledge",
@@ -55,36 +51,67 @@ class LiteratureRagTool(BaseTool):
             )
 
             # 执行相似度检索
-            # 注意：此处未加 filter 参数，实现了真正的“全局图文检索”。如果以后想加入当前会话限制，可以传入 filter={"chat_id": chat_id}
             docs = vectorstore.similarity_search(query, k=5)
             if not docs:
                 return "未检索到相关内容，可能是因为用户的问题偏离了现有文献，或文献尚未完成向量化。"
 
-            # 【核心修改】：重组 Context 
-            context_parts = []
+            content_blocks = []
+            image_markdowns = []
+            text_context = ""
+
             for doc in docs:
-                # 判断检索命中到了文本还是图片
                 if doc.metadata.get("type") == "image":
                     img_path = doc.metadata.get("image_path", "")
                     context_chunk = doc.metadata.get("context", "")
-                    # 【为下一阶段铺路】：
-                    # 现在返回纯文本给 LLM。等到了下个阶段将 LLM 换成视觉多模态大模型时，
-                    # 可以在 Executor 处拦截 [检索到图片] 标识，利用 base64 组装你提供的多模态 Message
-                    context_parts.append(f"【图文匹配项】检索到关联图片：{img_path}\n该图片附近的文献上下文：{context_chunk}")
+                    
+                    if os.path.exists(img_path):
+                        # 1. 编码给大模型使用
+                        base64_image = encode_image(img_path)
+                        img_ext = img_path.split('.')[-1].lower()
+                        mime_type = "image/png"
+                        if img_ext in ['jpg', 'jpeg']: mime_type = "image/jpeg"
+                        elif img_ext == 'webp': mime_type = "image/webp"
+                        
+                        # 添加到用户的多模态 Message
+                        content_blocks.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{base64_image}"}
+                        })
+                        content_blocks.append({
+                            "type": "text", 
+                            "text": f"【图文匹配项】关联图片对应的文献上下文：\n{context_chunk}"
+                        })
+                        
+                        # 2. 收集图片本地路径供前端显示（避免直接返回 base64 导致系统记忆 Token 爆炸）
+                        md_img = f"![检索到的文献图表]({img_path})"
+                        if md_img not in image_markdowns:
+                            image_markdowns.append(md_img)
                 else:
-                    context_parts.append(f"【文本片段】：{doc.page_content}")
+                    text_context += f"【文本片段】：{doc.page_content}\n\n"
 
-            context = "\n\n---\n\n".join(context_parts)
+            # 组装纯文本部分
+            if text_context:
+                content_blocks.append({"type": "text", "text": f"【检索到的文本片段】:\n{text_context}"})
+            
+            # 最后加入用户问题
+            content_blocks.append({"type": "text", "text": f"【用户问题】:\n{query}"})
 
-            # 交给 LLM 进行抽取总结
-            prompt_template = ChatPromptTemplate.from_template(RAG_QA_PROMPT)
-            chain = prompt_template | self.llm
-            res = chain.invoke({
-                "context": context,
-                "user_query": query
-            })
+            # 构建完整的对话消息
+            messages = [
+                SystemMessage(content=RAG_SYSTEM_PROMPT),
+                HumanMessage(content=content_blocks)
+            ]
 
-            return res.content
+            # 交给具备视觉能力的 LLM 进行推理
+            res = self.llm.invoke(messages)
+            final_answer = res.content
+
+            # 将图片路径附带在返回的文本末尾，以便前端抓取展示
+            if image_markdowns:
+                final_answer += "\n\n**【检索到的相关图表】**:\n"
+                final_answer += "\n".join(image_markdowns)
+
+            return final_answer
 
         except json.JSONDecodeError:
             return "RAG 工具出错: 参数解析失败，请确保输入的是合法的 JSON 字符串。"

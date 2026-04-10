@@ -22,6 +22,7 @@ ENV/
 # 忽略 IDE 配置
 .vscode/
 .idea/
+.VSCodeCounter/
 
 #忽略对话历史记录、上传文件目录
 chat_history/
