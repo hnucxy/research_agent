@@ -12,6 +12,7 @@ from ui.session import save_chat
 from utils.file_utils import get_file_hash, is_file_duplicate, register_file, get_file_path_from_hash, get_all_registered_files
 from utils.document_parser import parse_pdf_to_markdown
 from utils.exceptions import DocumentParseError
+from utils.token_tracker import TokenTracker
 
 def render_markdown_with_images(text: str) -> str:
     """提取 Markdown 中的本地路径并将其替换为 Base64 以供 Streamlit 渲染"""
@@ -227,7 +228,11 @@ def render_chat_page():
                     final_output = ""
                     process_logs = []
 
-                    for output in agent_app.stream(initial_state):
+                    # 动态实例化拦截器，并将 session 中的字典传递给它
+                    tracker = TokenTracker(st.session_state.token_usage)
+                    run_config = {"callbacks": [tracker]}
+
+                    for output in agent_app.stream(initial_state, config=run_config):
                         for node_name, state_update in output.items():
                             if node_name == "planner":
                                 st.write("🧠 **规划器 (Planner)** 制定了新计划：")

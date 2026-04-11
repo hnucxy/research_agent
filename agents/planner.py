@@ -125,12 +125,12 @@ class PlannerNode:
         except Exception as e:
             
             logger.error("[Error] Planner 解析 JSON 失败: %s", e)
-            # raise AgentPlanningError(f"规划器解析大模型输出失败: {e}")
+            raise AgentPlanningError(f"规划器解析大模型输出失败: {e}")
             # 基础兜底逻辑，防止图直接崩溃
-            return {
-                "plan": [f"直接处理用户任务: {user_request}"],
-                "planned_tools": ["generate"],
-                "current_step_index": 0,
-                "retry_count": 0,
-                "replan_count": state.get("replan_count", 0)
-            }
+            # return {
+            #     "plan": [f"直接处理用户任务: {user_request}"],
+            #     "planned_tools": ["generate"],
+            #     "current_step_index": 0,
+            #     "retry_count": 0,
+            #     "replan_count": state.get("replan_count", 0)
+            # }

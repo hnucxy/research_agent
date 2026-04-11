@@ -29,6 +29,20 @@ def render_sidebar():
                 st.rerun()
 
         st.divider()
+        st.subheader("📊 资源消耗看板")
+        if "token_usage" in st.session_state:
+            usage = st.session_state.token_usage
+            
+            st.metric(label="总 API 请求", value=f"{usage['successful_requests']} 次")
+            
+            col1, col2 = st.columns(2)
+            col1.metric(label="⬆️ 发送 (Prompt)", value=usage['prompt_tokens'])
+            col2.metric(label="⬇️ 接收 (Completion)", value=usage['completion_tokens'])
+            
+            st.caption(f"🤖 当前模型: `{usage['model_name']}`")
+            st.caption("*(注：受缓存命中等机制影响，具体资费以云端账单为准)*")
+
+        st.divider()
         st.subheader("历史记录")
 
         # 渲染历史对话列表

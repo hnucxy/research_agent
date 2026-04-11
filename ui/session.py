@@ -5,7 +5,8 @@ import chromadb
 from datetime import datetime
 import streamlit as st
 from ui.config import HISTORY_DIR, UPLOAD_DIR
-
+from utils.token_tracker import TokenTracker
+from config.settings import Settings
 
 def get_chat_files():
     """获取所有对话文件，按时间倒序排列（最新的在最上面）"""
@@ -72,3 +73,14 @@ def init_session_state():
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    
+    if "token_usage" not in st.session_state:
+        # 安全获取模型名称，处理环境变量未配置的兜底情况
+        model_name = getattr(Settings, "MODEL_NAME", None) or "未知模型"
+        
+        st.session_state.token_usage = {
+            "model_name": model_name,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "successful_requests": 0
+        }
