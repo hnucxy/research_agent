@@ -1,5 +1,8 @@
+import os
+import re
+import base64
+from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
-
 from config.settings import Settings
 from config.logger import get_logger
 from graph.state import AgentState
@@ -94,19 +97,64 @@ class ExecutorNode:
                 output = f"【{tool_name} 发生系统级错误】: {str(e)}"
 
         elif tool_name == "generate":
-            # print(f"    ✍️ 执行文本生成/总结/推理任务...")
             logger.info("    ✍️ 执行文本生成/总结/推理任务...")
-            #生成任务提示词的解耦
-            prompt_template = ChatPromptTemplate.from_template(TEXT_GENERATION_PROMPT)
-            chain = prompt_template | self.llm
+            
+            # 尝试从规划任务中提取出用户传递的图片路径
+            img_match = re.search(r"【多模态提示】：用户勾选了一张本地图表 \((.*?)\)", state.get("task_input", ""))
+            selected_img_path = img_match.group(1).strip() if img_match else None
 
-            # 传入模板需要的变量
-            res = chain.invoke({
-                "chat_history": state.get("chat_history", "无"),
-                "current_step": current_step,
-                "context": context_str
-            })
-            output = res.content
+            if selected_img_path and os.path.exists(selected_img_path):
+                logger.info("    🖼️ 识别到用户选中的图表，正在组装 LangChain 多模态消息体...")
+                
+                # 对图片进行 Base64 编码
+                with open(selected_img_path, "rb") as image_file:
+                    base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+                
+                ext = selected_img_path.split('.')[-1].lower()
+                mime_type = "image/png"
+                if ext in ['jpg', 'jpeg']: mime_type = "image/jpeg"
+                elif ext == 'webp': mime_type = "image/webp"
+
+                # 兼顾原有的提示词拼接
+                prompt_text = TEXT_GENERATION_PROMPT.format(
+                    chat_history=state.get("chat_history", "无"),
+                    current_step=current_step,
+                    context=context_str
+                )
+                
+                # 按照OpenAI兼容格式组装LangChain多模态content块
+                content_blocks = [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{base64_image}"}
+                    },
+                    {
+                        "type": "text",
+                        "text": prompt_text
+                    }
+                ]
+                
+                messages = [HumanMessage(content=content_blocks)]
+                
+                try:
+                    res = self.llm.invoke(messages)
+                    output = res.content
+                except Exception as e:
+                    logger.error("多模态生成任务失败: %s", e)
+                    output = f"【多模态推理失败】: {str(e)}"
+                    
+            else:
+                # 无图片generate，原有的纯文本链条逻辑不变
+                prompt_template = ChatPromptTemplate.from_template(TEXT_GENERATION_PROMPT)
+                chain = prompt_template | self.llm
+
+                # 传入模板需要的变量
+                res = chain.invoke({
+                    "chat_history": state.get("chat_history", "无"),
+                    "current_step": current_step,
+                    "context": context_str
+                })
+                output = res.content
 
         else:
             # print(f"    ⚠️ 警告: 未知工具 '{tool_name}'")

@@ -175,6 +175,36 @@ def render_chat_page():
                             if os.path.exists(f_path):
                                 os.remove(f_path)
                             st.rerun()
+                    selected_image_for_chat = None
+                if selected_files_for_agent:
+                    all_images = []
+                    for f in selected_files_for_agent:
+                        try:
+                            with open(f["path"], "r", encoding="utf-8") as file:
+                                md_content = file.read()
+                                # 正则提取文献中通过 pymupdf 解析出的图片绝对路径
+                                imgs = re.findall(r'!\[.*?\]\((.*?)\)', md_content)
+                                for img in imgs:
+                                    if os.path.exists(img) and img not in all_images:
+                                        all_images.append(img)
+                        except Exception:
+                            pass
+
+                    if all_images:
+                        st.divider()
+                        st.write("🖼️ **文献图表多模态分析 (可选)**")
+                        
+                        # 格式化函数：仅显示文件名，不显示冗长路径
+                        def format_img_func(img_path):
+                            if img_path == "无": return "不使用图表"
+                            return os.path.basename(img_path)
+                            
+                        img_options = ["无"] + all_images
+                        selected_img_opt = st.selectbox("选择一张图表结合提问：", img_options, format_func=format_img_func)
+                        
+                        if selected_img_opt != "无":
+                            st.image(selected_img_opt, caption=f"选中图表: {os.path.basename(selected_img_opt)}", use_container_width=True)
+                            selected_image_for_chat = selected_img_opt
     # 底部聊天输入框
     placeholder_text = "请输入你的科研需求..."
     if prompt := st.chat_input(placeholder_text):
@@ -207,6 +237,10 @@ def render_chat_page():
                                 f"1. 如果用户要求对文献进行全局性概括、总结核心贡献等，请规划并调用 `literature_read`（全文阅读工具）。必须将下方的“绝对路径”填入 file_path 参数中。\n"
                                 f"2. 如果用户询问文献中的具体细节、特定指标、或者定位某个算法步骤，请必须规划并调用 `literature_rag_search` 工具以节省时间。\n"
                                 f"【当前用户勾选的全局文献清单】:\n{file_list_str}\n"
+                            )
+                        if selected_image_for_chat:
+                            enhanced_prompt += (
+                                f"\n\n【多模态提示】：用户勾选了一张本地图表 ({selected_image_for_chat})，请结合这张图片的内容回答用户的问题。此步骤无需调用检索工具，必须规划分配给 `generate` 工具直接执行多模态推理。"
                             )
 
                     # 初始化 Agent 状态

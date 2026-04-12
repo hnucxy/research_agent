@@ -11,6 +11,8 @@
 # 忽略json文件
 *.json
 
+*.png
+
 # 忽略 Python 缓存和虚拟环境
 __pycache__/
 *.py[cod]
