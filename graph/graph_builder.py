@@ -5,6 +5,7 @@ from agents.planner import PlannerNode
 from agents.executor import ExecutorNode
 from agents.evaluator import EvaluatorNode
 from config.logger import get_logger
+from agents.memory import MemoryNode
 
 logger = get_logger()
 
@@ -21,13 +22,13 @@ def give_up_node(state: AgentState):
         "current_step_index": len(state.get("plan", []))
     }
 
-# 定义一个简单的状态更新函数，用来让步骤 +1
-def step_updater(state: AgentState):
-    return {
-        "current_step_index": state["current_step_index"] + 1,
-        "retry_count": 0,
-        "evaluation_result": {} #清空上一次的评估
-    }
+# # 定义一个简单的状态更新函数，用来让步骤 +1
+# def step_updater(state: AgentState):
+#     return {
+#         "current_step_index": state["current_step_index"] + 1,
+#         "retry_count": 0,
+#         "evaluation_result": {} #清空上一次的评估
+#     }
 
 
 def build_graph():
@@ -37,7 +38,7 @@ def build_graph():
     workflow.add_node("planner", PlannerNode())
     workflow.add_node("executor", ExecutorNode())
     workflow.add_node("evaluator", EvaluatorNode())
-    workflow.add_node("update_step", step_updater)  # 负责翻页
+    workflow.add_node("update_step", MemoryNode())  
     workflow.add_node("give_up", give_up_node)  # 兜底节点
 
     # 2. 定义入口

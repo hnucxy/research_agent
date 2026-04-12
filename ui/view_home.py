@@ -16,7 +16,7 @@ def render_home_page():
         with st.container(border=True):
             st.subheader("📚 1. 文献检索")
             st.caption("输入关键词或主题，快速检索并总结相关领域的前沿学术论文与文献。")
-            if st.button("进入检索", key="btn_a", use_container_width=True, type="primary"):
+            if st.button("进入检索", key="btn_a", width="stretch", type="primary"):
                 init_new_chat("a")
                 st.rerun()
 
@@ -25,7 +25,7 @@ def render_home_page():
         with st.container(border=True):
             st.subheader("📖 3. 文献阅读")
             st.caption("上传预先转换好的 Markdown 格式文献，大模型将基于文献内容与您进行深度对话与总结。")
-            if st.button("创建会话", key="btn_c", use_container_width=True, type="primary"):
+            if st.button("创建会话", key="btn_c", width="stretch", type="primary"):
                 init_new_chat("c")
                 st.rerun()
 
@@ -33,7 +33,7 @@ def render_home_page():
         with st.container(border=True):
             st.subheader("✍️ 2. 学术内容撰写")
             st.caption("根据已有文献资料和您的研究大纲，辅助撰写结构化的学术内容。")
-            if st.button("进入撰写", key="btn_b", use_container_width=True, type="primary"):
+            if st.button("进入撰写", key="btn_b", width="stretch", type="primary"):
                 init_new_chat("b")
                 st.rerun()
 
@@ -42,6 +42,6 @@ def render_home_page():
         with st.container(border=True):
             st.subheader("⚙️ 4. 功能四")
             st.caption("TODO")
-            if st.button("创建会话", key="btn_d", use_container_width=True):
+            if st.button("创建会话", key="btn_d", width="stretch"):
                 init_new_chat("d")
                 st.rerun()

@@ -21,7 +21,8 @@ def parse_pdf_to_markdown(pdf_bytes: bytes, output_dir: str, base_name: str) -> 
             doc=temp_pdf_path,
             write_images=True,
             image_path=image_dir,
-            image_format="png"
+            image_format="png",
+            dpi=300
         )
         return md_text
     except Exception as e:

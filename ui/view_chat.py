@@ -203,7 +203,7 @@ def render_chat_page():
                         selected_img_opt = st.selectbox("选择一张图表结合提问：", img_options, format_func=format_img_func)
                         
                         if selected_img_opt != "无":
-                            st.image(selected_img_opt, caption=f"选中图表: {os.path.basename(selected_img_opt)}", use_container_width=True)
+                            st.image(selected_img_opt, caption=f"选中图表: {os.path.basename(selected_img_opt)}", width="stretch")
                             selected_image_for_chat = selected_img_opt
     # 底部聊天输入框
     placeholder_text = "请输入你的科研需求..."

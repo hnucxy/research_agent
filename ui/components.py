@@ -8,20 +8,20 @@ def render_sidebar():
         st.title("💬 会话管理")
 
         # 返回主页按钮
-        if st.button("🏠 返回主页", use_container_width=True):
+        if st.button("🏠 返回主页", width="stretch"):
             st.session_state.current_function = None
             st.session_state.current_chat_id = None
             st.rerun()
 
         # 新建当前功能对话（仅在非主页时显示）
         if st.session_state.current_function is not None:
-            if st.button(f"➕ 新建【{FUNC_MAP[st.session_state.current_function]}】对话", use_container_width=True):
+            if st.button(f"➕ 新建【{FUNC_MAP[st.session_state.current_function]}】对话", width="stretch"):
                 init_new_chat(st.session_state.current_function)
                 st.rerun()
 
         # 删除当前对话按钮
         if st.session_state.current_chat_id is not None:
-            if st.button("🗑️ 删除当前对话", type="primary", use_container_width=True):
+            if st.button("🗑️ 删除当前对话", type="primary", width="stretch"):
                 delete_chat(st.session_state.current_chat_id)
                 # 删除后返回主页
                 st.session_state.current_function = None
@@ -73,7 +73,7 @@ def render_sidebar():
             btn_label = f"▶ [{func_name}] {title}" if is_active else f"📝 [{func_name}] {title}"
 
             # 点击历史记录，切换页面和会话
-            if st.button(btn_label, key=chat_id, use_container_width=True, disabled=is_active):
+            if st.button(btn_label, key=chat_id, width="stretch", disabled=is_active):
                 st.session_state.current_chat_id = chat_id
                 st.session_state.messages = chat_msgs
                 st.session_state.current_function = func_code_in_file

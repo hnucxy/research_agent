@@ -51,7 +51,16 @@ class ExecutorNode:
         
         # 通用路由与执行逻辑
         
-        if tool_name in self.tools:
+        if tool_name == "memo_output":
+            logger.info("    📦 识别到语义缓存，正在精准提取结论...")
+            # 使用正则从冗余的记忆块中，提取最后一个 "Result:" 之后的所有内容（即真正的执行结论）
+            match = re.search(r"Result:\s*(.*)", current_step, re.DOTALL)
+            if match:
+                output = match.group(1).strip()
+            else:
+                # 兜底清理：如果没匹配到 Result 标识，则尝试移除缓存标识符
+                output = current_step.replace("【语义缓存直接输出】\n", "").strip()
+        elif tool_name in self.tools:
             tool = self.tools[tool_name]
             # print(f"    🛠️ 准备调用外部工具: [{tool_name}]")
             logger.info("    🛠️ 准备调用外部工具: [%s]", tool_name)
@@ -163,7 +172,8 @@ class ExecutorNode:
 
         # print(f"    步骤输出预览: {output[:100]}...\n")
         logger.info("     步骤输出：%s", output)
+        display_step = "从历史经验中提取高价值结论" if tool_name == "memo_output" else current_step
 
         return {
-            "step_history": [f"Step: {current_step}\nTool: {tool_name}\nResult: {output}"]
+            "step_history": [f"Step: {display_step}\nTool: {tool_name}\nResult: {output}"]
         }
