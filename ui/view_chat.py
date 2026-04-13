@@ -229,10 +229,22 @@ def render_chat_page():
 
                     chat_history_str = "\n".join(history_msgs) if history_msgs else "无历史对话"
                     enhanced_prompt = prompt
+
+                    doc_full_text = ""
+
                     
                     # 只向Agent暴露被勾选的文献
-                    if st.session_state.current_function in ["c", "d"]:
-                        if selected_files_for_agent:
+                    if st.session_state.current_function in ["c", "d"] and selected_files_for_agent:
+                        if st.session_state.current_function == "d":
+                            # 功能四：直接将文件内容拼接传入 document_context，不使用 RAG 工具
+                            for f_info in selected_files_for_agent:
+                                f_path = f_info["path"]
+                                if os.path.exists(f_path):
+                                    with open(f_path, "r", encoding="utf-8") as f:
+                                        doc_full_text += f"--- 文件: {f_info['name']} ---\n{f.read()}\n\n"
+
+                        else:
+                            # 功能三
                             # 提取选中的文献的真实绝对路径，并转义反斜杠防止 JSON 解析出错
                             file_list_str = "\n".join([f"- 文件名: {f['name']}, 绝对路径: {os.path.abspath(f['path']).replace(chr(92), '/')}" for f in selected_files_for_agent])
                             
@@ -260,7 +272,11 @@ def render_chat_page():
                         "replan_count": 0,
                         "step_history": [],
                         "evaluation_result": {},
-                        "final_answer": ""
+                        "final_answer": "",
+
+                        "document_context": doc_full_text,
+                        "current_draft": "",
+                        "review_feedback": ""
                     }
 
                     final_output = ""
@@ -306,6 +322,33 @@ def render_chat_page():
                                 else:
                                     log_str = f"⚠️ **评估 (Evaluator)**: 未通过，触发修正重试。(反馈: {fb})"
                                     st.warning(log_str)
+                                process_logs.append(log_str)
+
+                            elif node_name == "author":
+                                # 获取当前草稿
+                                draft = state_update.get('current_draft', '')
+                                step_hist = state_update.get('step_history', [])
+                                
+                                if draft:
+                                    st.write("✍️ **作者 (Author)** 正在输出草稿...")
+                                    # 记录
+                                    process_logs.append(f"✍️ **作者撰写草稿**:\n```text\n{step_hist[-1] if step_hist else draft}\n```")
+                                    
+                                    final_output = draft
+
+                            elif node_name == "reviewer":
+                                # 审稿结果 UI 处理
+                                eval_res = state_update.get('evaluation_result', {})
+                                passed = eval_res.get('passed', False)
+                                fb = eval_res.get('feedback', '')
+                                
+                                log_str = f"🧐 **审稿人 (Reviewer)**: {'✅ 通过' if passed else '❌ 打回'} (反馈: {fb})"
+                                if passed:
+                                    st.success(log_str)
+                                else:
+                                    st.warning(log_str)
+                                
+                                # 记录到执行详情
                                 process_logs.append(log_str)
 
                             elif node_name == "give_up":

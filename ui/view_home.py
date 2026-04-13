@@ -40,8 +40,8 @@ def render_home_page():
         st.write("")  # 垂直间距
 
         with st.container(border=True):
-            st.subheader("⚙️ 4. 功能四")
-            st.caption("TODO")
-            if st.button("创建会话", key="btn_d", width="stretch"):
+            st.subheader("⚙️ 4. 审稿“人”")
+            st.caption("“作者-审稿人”辩论机制")
+            if st.button("创建会话", key="btn_d", width="stretch", type="primary"):
                 init_new_chat("d")
                 st.rerun()

@@ -33,6 +33,13 @@ class AgentState(TypedDict):
     # [ReAct] 当前步骤的执行历史 (Tool calls & outputs)
     step_history: Annotated[List[Any], operator.add]
 
+    # 存放上传文件的全文内容，供 Author 和 Reviewer 直接阅读
+    document_context: str
+    # 当前撰写的草稿
+    current_draft: str
+    # 审稿专家的反馈意见
+    review_feedback: str
+
     # [Self-Refine] 评估结果
     evaluation_result: Dict[str, Any]  # e.g. {"passed": bool, "feedback": str}
 
