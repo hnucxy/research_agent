@@ -1,6 +1,7 @@
 import os
 import re
 import base64
+import streamlit as st
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from config.settings import Settings
@@ -53,13 +54,13 @@ class ExecutorNode:
         
         if tool_name == "memo_output":
             logger.info("    📦 识别到语义缓存，正在精准提取结论...")
-            # 使用正则从冗余的记忆块中，提取最后一个 "Result:" 之后的所有内容（即真正的执行结论）
             match = re.search(r"Result:\s*(.*)", current_step, re.DOTALL)
-            if match:
-                output = match.group(1).strip()
-            else:
-                # 兜底清理：如果没匹配到 Result 标识，则尝试移除缓存标识符
-                output = current_step.replace("【语义缓存直接输出】\n", "").strip()
+            output = match.group(1).strip() if match else current_step.replace("【语义缓存直接输出】\n", "").strip()
+            
+            # 经验缓存直接写入主界面
+            container = st.session_state.get("current_stream_container")
+            if container:
+                container.markdown(f"### 🧠 从历史经验中提取到高价值结论\n\n{output}")
         elif tool_name in self.tools:
             tool = self.tools[tool_name]
             # print(f"    🛠️ 准备调用外部工具: [{tool_name}]")
@@ -107,6 +108,11 @@ class ExecutorNode:
 
         elif tool_name == "generate":
             logger.info("    ✍️ 执行文本生成/总结/推理任务...")
+
+            # 获取开启了流式的 LLM
+            stream_llm = Settings.get_llm(temperature=0.1, streaming=True)
+            container = st.session_state.get("current_stream_container")
+            output = ""
             
             # 尝试从规划任务中提取出用户传递的图片路径
             img_match = re.search(r"【多模态提示】：用户勾选了一张本地图表 \((.*?)\)", state.get("task_input", ""))
@@ -146,24 +152,40 @@ class ExecutorNode:
                 messages = [HumanMessage(content=content_blocks)]
                 
                 try:
-                    res = self.llm.invoke(messages)
-                    output = res.content
+                    # 将多模态 invoke 改为 stream
+                    for chunk in stream_llm.stream(messages):
+                        content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                        if content:
+                            output += content
+                            if container:
+                                container.markdown(f"### 💡 正在进行多模态分析...\n\n{output} ▌")
+                    if container:
+                        container.markdown(f"### 💡 分析完毕\n\n{output}")
                 except Exception as e:
-                    logger.error("多模态生成任务失败: %s", e)
+                    logger.error("多模态生成失败: %s", e)
                     output = f"【多模态推理失败】: {str(e)}"
-                    
+
             else:
                 # 无图片generate，原有的纯文本链条逻辑不变
                 prompt_template = ChatPromptTemplate.from_template(TEXT_GENERATION_PROMPT)
                 chain = prompt_template | self.llm
 
-                # 传入模板需要的变量
-                res = chain.invoke({
-                    "chat_history": state.get("chat_history", "无"),
-                    "current_step": current_step,
-                    "context": context_str
-                })
-                output = res.content
+                try:
+                    # 将纯文本链条 invoke 改为 stream
+                    for chunk in chain.stream({
+                        "chat_history": state.get("chat_history", "无"),
+                        "current_step": current_step,
+                        "context": context_str
+                    }):
+                        content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                        if content:
+                            output += content
+                            if container:
+                                container.markdown(f"### 💡 正在总结归纳...\n\n{output} ▌")
+                    if container:
+                        container.markdown(f"### 💡 总结归纳完毕\n\n{output}")
+                except Exception as e:
+                    output = f"【文本生成失败】: {str(e)}"
 
         else:
             # print(f"    ⚠️ 警告: 未知工具 '{tool_name}'")

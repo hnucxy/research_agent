@@ -2,6 +2,7 @@ import json
 import re
 import os
 import base64
+import streamlit as st
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_chroma import Chroma
 from tools.base import BaseTool
@@ -29,7 +30,7 @@ class LiteratureRagTool(BaseTool):
     )
 
     def __init__(self):
-        self.llm = Settings.get_llm(temperature=0.1)
+        self.llm = Settings.get_llm(temperature=0.1, streaming=True)
         self.embeddings = Settings.get_embeddings()
 
     def run(self, params: str) -> str:
@@ -108,16 +109,24 @@ class LiteratureRagTool(BaseTool):
                 HumanMessage(content=content_blocks)
             ]
 
+            container = st.session_state.get("current_stream_container")
+            output = ""
             # 交给具备视觉能力的 LLM 进行推理
-            res = self.llm.invoke(messages)
-            final_answer = res.content
+            for chunk in self.llm.stream(messages):
+                content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                if content:
+                    output += content
+                    if container:
+                        container.markdown(f"### 🔎 正在进行多模态片段分析...\n\n{output} ▌")
 
-            # 将图片路径附带在返回的文本末尾，以便前端抓取展示
             if image_markdowns:
-                final_answer += "\n\n**【检索到的相关图表】**:\n"
-                final_answer += "\n".join(image_markdowns)
+                output += "\n\n**【检索到的相关图表】**:\n"
+                output += "\n".join(image_markdowns)
+                
+            if container:
+                container.markdown(f"### 🔎 片段分析完毕\n\n{output}")
 
-            return final_answer
+            return output
 
         except json.JSONDecodeError:
             raise ToolExecutionError("RAG 工具出错: 参数解析失败，请确保输入的是合法的 JSON 字符串。")

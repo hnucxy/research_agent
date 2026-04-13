@@ -215,6 +215,10 @@ def render_chat_page():
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
+            # 在系统执行日志外，提供一个用于全局捕获流式输出的容器
+            stream_container = st.empty()
+            st.session_state.current_stream_container = stream_container
+
             with st.status("Agent 正在思考与执行...", expanded=True) as status:
                 try:
                     history_msgs = []
@@ -307,10 +311,10 @@ def render_chat_page():
                             elif node_name == "give_up":
                                 final_output = None
 
-                    status.update(label="任务执行完毕！点击查看执行详情", state="complete", expanded=True)
+                    status.update(label="任务执行完毕！点击查看执行详情", state="complete", expanded=False)
                     
                     final_answer_display = f"### 执行结果\n{final_output}" if final_output else "未获取到有效结果。"
-                    st.markdown(render_markdown_with_images(final_answer_display))
+                    stream_container.markdown(render_markdown_with_images(final_answer_display))
 
                     st.session_state.messages.append({
                         "role": "assistant",

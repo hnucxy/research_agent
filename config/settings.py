@@ -17,23 +17,26 @@ class Settings:
     EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME")
 
     @classmethod
-    def get_llm(cls, temperature=0.0):
+    def get_llm(cls, temperature=0.0, streaming=False):
         """获取统一的 LLM 实例"""
-        return ChatOpenAI(
-            model=cls.MODEL_NAME,
-            api_key=cls.API_KEY,
-            base_url=cls.BASE_URL,
-            temperature=temperature,
-            # default_headers = {
-            #     "User-Agent": "curl/7.68.0",
-            #     "Connection": "close"
-            # }
-
-            # 关闭千问模型深度思考
-            extra_body={
+        
+        # 基础配置参数
+        model_kwargs = {
+            "model": cls.MODEL_NAME,
+            "api_key": cls.API_KEY,
+            "base_url": cls.BASE_URL,
+            "temperature": temperature,
+            "streaming": streaming,
+            "extra_body": {
                 "enable_thinking": False
             }
-        )
+        }
+        
+        # 核心修复：如果开启了流式输出，强制要求 API 在最后一个 Chunk 中附带 Token 使用量
+        if streaming:
+            model_kwargs["stream_options"] = {"include_usage": True}
+
+        return ChatOpenAI(**model_kwargs)
     
     # # 获取向量模型
     # @classmethod

@@ -2,6 +2,7 @@ import json
 import re
 import os
 import tiktoken
+import streamlit as st
 from langchain_core.prompts import ChatPromptTemplate
 from prompts.executor_prompts import READING_PROMPT
 from tools.base import BaseTool
@@ -51,14 +52,24 @@ class LiteratureReaderTool(BaseTool):
 
             prompt_template = ChatPromptTemplate.from_template(READING_PROMPT)
             chain = prompt_template | self.llm
-            res = chain.invoke({
+            stream_gen = chain.stream({
                 "document_content": doc_content,
                 "user_query": query
             })
+            
+            container = st.session_state.get("current_stream_container")
+            output = ""
+            for chunk in stream_gen:
+                content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                if content:
+                    output += content
+                    if container:
+                        container.markdown(f"### 📖 正在深度阅读并分析文献...\n\n{output} ▌")
+                        
+            if container:
+                container.markdown(f"### 📖 文献分析完毕\n\n{output}")
 
-            return res.content
+            return output
 
-        except json.JSONDecodeError:
-            return "文献阅读工具出错: 参数解析失败，请确保输入的是合法的 JSON 字符串。"
         except Exception as e:
             return f"文献阅读工具出错: {str(e)}"
