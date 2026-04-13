@@ -35,8 +35,13 @@ class AgentState(TypedDict):
 
     # 存放上传文件的全文内容，供 Author 和 Reviewer 直接阅读
     document_context: str
+
+    # 草稿模式
+    draft_mode: str
+    
     # 当前撰写的草稿
     current_draft: str
+
     # 审稿专家的反馈意见
     review_feedback: str
 

@@ -33,12 +33,15 @@ def build_graph():
     # 动态路由入口
     def route_entry(state: AgentState):
         if state.get("current_function") == "d":
-            return "author"
+            # 如果用户自带原稿，入口直接跳转到审稿人
+            if state.get("draft_mode") == "user_draft":
+                return "reviewer"
+            return "author" # 否则默认交给作者从零起草
         return "planner"
 
     workflow.set_conditional_entry_point(
         route_entry,
-        {"author": "author", "planner": "planner"}
+        {"author": "author", "reviewer": "reviewer", "planner": "planner"}
     )
 
     # 单Agent流转边 (功能 a,b,c)

@@ -53,6 +53,17 @@ def render_chat_page():
 
     # 右侧：文献库与管理
     with doc_col:
+        # 工作流模式选择
+        draft_mode = "auto_draft"
+        if st.session_state.current_function == "d":
+            st.divider()
+            draft_mode = st.radio(
+                "✍️ 审稿工作流模式",
+                options=["auto_draft", "user_draft"],
+                format_func=lambda x: "让 Agent 查阅文献并起草" if x == "auto_draft" else "由我提供原稿进行投递",
+                help="如果选择“提供原稿”，您在聊天框输入的文本和上传的文档将直接作为初稿发给审稿专家进行第一轮审查。"
+            )
+            st.divider()
         if st.session_state.current_function in ["c", "d"]:
             chat_upload_dir = os.path.join(UPLOAD_DIR, st.session_state.current_chat_id)
             
@@ -259,11 +270,21 @@ def render_chat_page():
                                 f"\n\n【多模态提示】：用户勾选了一张本地图表 ({selected_image_for_chat})，请结合这张图片的内容回答用户的问题。此步骤无需调用检索工具，必须规划分配给 `generate` 工具直接执行多模态推理。"
                             )
 
+                    # 针对审稿功能的草稿初始化逻辑
+                    initial_draft = ""
+                    task_prompt = enhanced_prompt
+                    
+                    if st.session_state.current_function == "d" and draft_mode == "user_draft":
+                        # 将用户输入的 Prompt（以及后续可能的文档内容）作为初始原稿
+                        initial_draft = prompt
+                        # 修改系统任务：告诉大家现在的任务是审阅
+                        task_prompt = "请对当前草稿进行学术视角的审阅与润色。若提供了参考文档，请校验事实；若未提供，请着重优化语言表达和逻辑规范。"
+
                     # 初始化 Agent 状态
                     agent_app = build_graph()
                     initial_state = {
                         "current_function": st.session_state.current_function,
-                        "task_input": enhanced_prompt,
+                        "task_input": task_prompt,
                         "chat_history": chat_history_str,
                         "plan": [],
                         "planned_tools": [],
@@ -273,14 +294,16 @@ def render_chat_page():
                         "step_history": [],
                         "evaluation_result": {},
                         "final_answer": "",
-
-                        "document_context": doc_full_text,
-                        "current_draft": "",
+                        "draft_mode": draft_mode,
+                        "document_context": doc_full_text if doc_full_text else "无",
+                        "current_draft": initial_draft,
                         "review_feedback": ""
                     }
 
                     final_output = ""
                     process_logs = []
+                    # 临时记录最新版本的草稿，防止 reviewer 过了但拿不到文稿
+                    latest_valid_draft = initial_draft
 
                     # 动态实例化拦截器，并将 session 中的字典传递给它
                     tracker = TokenTracker(st.session_state.token_usage)
@@ -345,6 +368,8 @@ def render_chat_page():
                                 log_str = f"🧐 **审稿人 (Reviewer)**: {'✅ 通过' if passed else '❌ 打回'} (反馈: {fb})"
                                 if passed:
                                     st.success(log_str)
+                                    # 如果审稿人首轮就过了，确保输出框有原稿内容展示
+                                    final_output = latest_valid_draft
                                 else:
                                     st.warning(log_str)
                                 
