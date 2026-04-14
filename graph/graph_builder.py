@@ -6,6 +6,8 @@ from agents.executor import ExecutorNode
 from agents.evaluator import EvaluatorNode
 from config.logger import get_logger
 from agents.memory import MemoryNode
+from graph.state import ReviewerState
+from agents.reviewer_author import InputParserNode, ReviewerNode, AuthorNode
 
 logger = get_logger()
 
@@ -123,3 +125,50 @@ def build_graph():
     return workflow.compile()
 
 
+
+def build_reviewer_graph():
+    """
+    专门为功能四 (Author-Reviewer) 构建的循环图
+    """
+    workflow = StateGraph(ReviewerState)
+
+    # 1. 添加节点
+    workflow.add_node("input_parser", InputParserNode())
+    workflow.add_node("reviewer", ReviewerNode())
+    workflow.add_node("author", AuthorNode())
+
+    # 2. 定义入口
+    workflow.set_entry_point("input_parser")
+
+    # 3. 边路由逻辑
+    workflow.add_edge("input_parser", "reviewer")
+    workflow.add_edge("author", "reviewer")
+
+    def check_reviewer_decision(state: ReviewerState):
+        status = state.get("status")
+        retries = state.get("retry_count", 0)
+        max_retries = state.get("max_retries", 3)
+
+        if status == "pass":
+            logger.info("    [System] 审稿通过，结束循环。")
+            return "end"
+        elif status == "reject":
+            logger.info("    [System] 触发防幻觉拒稿机制，强制结束！")
+            return "end"
+        else:
+            if retries >= max_retries:
+                logger.warning("    [System] 达到最大修改次数，强制结束。")
+                return "end"
+            logger.info("    [System] 审稿未通过，交由 Author 修改...")
+            return "revise"
+
+    workflow.add_conditional_edges(
+        "reviewer",
+        check_reviewer_decision,
+        {
+            "end": END,
+            "revise": "author"
+        }
+    )
+
+    return workflow.compile()

@@ -228,91 +228,160 @@ def render_chat_page():
                         history_msgs.append(f"[{role_name}]: {content}")
 
                     chat_history_str = "\n".join(history_msgs) if history_msgs else "无历史对话"
-                    enhanced_prompt = prompt
                     
-                    # 只向Agent暴露被勾选的文献
-                    if st.session_state.current_function in ["c", "d"]:
+                    tracker = TokenTracker(st.session_state.token_usage)
+                    run_config = {"callbacks": [tracker]}
+                    process_logs = []
+                    final_output = ""
+
+                    # 功能四 (Author-Reviewer
+                    if st.session_state.current_function == "d":
+                        # 复用文件上传机制提取原稿内容
+                        draft_content = ""
                         if selected_files_for_agent:
-                            # 提取选中的文献的真实绝对路径，并转义反斜杠防止 JSON 解析出错
+                            # 假设只取勾选的第一个文件作为原稿
+                            file_path = selected_files_for_agent[0]["path"]
+                            if file_path.endswith('.md') and os.path.exists(file_path):
+                                with open(file_path, "r", encoding="utf-8") as f:
+                                    draft_content = f.read()
+                                st.info(f"已识别到作为原稿的勾选文件：{selected_files_for_agent[0]['name']}")
+
+                        from graph.graph_builder import build_reviewer_graph
+                        agent_app = build_reviewer_graph()
+                        initial_state = {
+                            "current_function": "d",
+                            "user_prompt": prompt,
+                            "draft_content": draft_content,
+                            "feedback": "",
+                            "retry_count": 0,
+                            "max_retries": 3,
+                            "status": "",
+                            "chat_history": chat_history_str,
+                            "final_answer": ""
+                        }
+
+                        # 循环并适配界面输出
+                        for output in agent_app.stream(initial_state, config=run_config):
+                            for node_name, state_update in output.items():
+                                if node_name == "input_parser":
+                                    # 更新当前草稿内容，防止后续 Reviewer 拿不到
+                                    if "draft_content" in state_update:
+                                        draft_content = state_update["draft_content"]
+                                    st.write("🧩 **解析器** 准备就绪。")
+
+                                elif node_name == "reviewer":
+                                    status_flag = state_update.get('status')
+                                    fb = state_update.get('feedback', '')
+                                    # 确保从 state_update 或闭包变量中获取最新的稿件
+                                    current_manuscript = state_update.get('draft_content', draft_content)
+                                    
+                                    if status_flag == "pass":
+                                        log_msg = f"✅ **Reviewer (通过)**: {fb}"
+                                        st.success(log_msg)
+                                        # 最终文稿输出 bug 修复：组装最终显示内容
+                                        final_output = f"### ✨ 最终审定文稿\n\n{current_manuscript}\n\n---\n**审稿专家意见**：{fb}"
+                                    elif status_flag == "reject":
+                                        log_msg = f"⛔ **Reviewer (驳回)**: {fb}"
+                                        st.error(log_msg)
+                                        final_output = f"### ❌ 任务被驳回\n\n**理由**：{fb}"
+                                    else:
+                                        log_msg = f"⚠️ **Reviewer (反馈建议)**: {fb}"
+                                        st.warning(log_msg)
+                                    
+                                    process_logs.append(log_msg)
+
+                                elif node_name == "author":
+                                    rc = state_update.get("retry_count", 0)
+                                    # 更新闭包变量中的稿件内容，供下一轮 Reviewer 使用
+                                    draft_content = state_update.get("draft_content", "")
+                                    
+                                    log_msg = f"✍️ **Author**: 完成第 {rc} 次修改。"
+                                    st.info(log_msg)
+                                    
+                                    # 在日志中记录修改结果
+                                    process_logs.append(f"{log_msg}\n\n**修改预览**：\n{draft_content}...")
+                                    
+                                    if rc >= 3:
+                                        final_output = f"### ⚠️ 达到最大修改次数\n\n{draft_content}"
+
+                    # 功能 a/b/c
+                    else:
+                       
+                        enhanced_prompt = prompt
+                       
+                        if selected_files_for_agent:
                             file_list_str = "\n".join([f"- 文件名: {f['name']}, 绝对路径: {os.path.abspath(f['path']).replace(chr(92), '/')}" for f in selected_files_for_agent])
-                            
                             enhanced_prompt += (
                                 f"\n\n【系统隐式提示】：用户已在全局文献库中**勾选**了以下文献。请根据用户需求在以下两个工具中选择：\n"
                                 f"1. 如果用户要求对文献进行全局性概括、总结核心贡献等，请规划并调用 `literature_read`（全文阅读工具）。必须将下方的“绝对路径”填入 file_path 参数中。\n"
                                 f"2. 如果用户询问文献中的具体细节、特定指标、或者定位某个算法步骤，请必须规划并调用 `literature_rag_search` 工具以节省时间。\n"
                                 f"【当前用户勾选的全局文献清单】:\n{file_list_str}\n"
                             )
-                        if selected_image_for_chat:
+                        if st.session_state.current_function in ["c", "d"] and 'selected_image_for_chat' in locals() and selected_image_for_chat:
                             enhanced_prompt += (
                                 f"\n\n【多模态提示】：用户勾选了一张本地图表 ({selected_image_for_chat})，请结合这张图片的内容回答用户的问题。此步骤无需调用检索工具，必须规划分配给 `generate` 工具直接执行多模态推理。"
                             )
 
-                    # 初始化 Agent 状态
-                    agent_app = build_graph()
-                    initial_state = {
-                        "current_function": st.session_state.current_function,
-                        "task_input": enhanced_prompt,
-                        "chat_history": chat_history_str,
-                        "plan": [],
-                        "planned_tools": [],
-                        "current_step_index": 0,
-                        "retry_count": 0,
-                        "replan_count": 0,
-                        "step_history": [],
-                        "evaluation_result": {},
-                        "final_answer": ""
-                    }
+                        initial_state = {
+                            "current_function": st.session_state.current_function,
+                            "task_input": enhanced_prompt,
+                            "chat_history": chat_history_str,
+                            "plan": [],
+                            "planned_tools": [],
+                            "current_step_index": 0,
+                            "retry_count": 0,
+                            "replan_count": 0,
+                            "step_history": [],
+                            "evaluation_result": {},
+                            "final_answer": ""
+                        }
+                        
+                        agent_app = build_graph()
 
-                    final_output = ""
-                    process_logs = []
+                        for output in agent_app.stream(initial_state, config=run_config):
+                            for node_name, state_update in output.items():
+                                
+                                if node_name == "planner":
+                                    st.write("🧠 **规划器 (Planner)** 制定了新计划：")
+                                    process_logs.append("🧠 **规划器 (Planner)** 制定了新计划：")
+                                    plans = state_update.get('plan', [])
+                                    tools = state_update.get('planned_tools', [])
+                                    for i, (p, t) in enumerate(zip(plans, tools)):
+                                        log_str = f"**Step {i + 1}**: {p} `[Tool: {t}]`"
+                                        st.info(log_str)
+                                        process_logs.append(f"  - {log_str}")
 
-                    # 动态实例化拦截器，并将 session 中的字典传递给它
-                    tracker = TokenTracker(st.session_state.token_usage)
-                    run_config = {"callbacks": [tracker]}
+                                elif node_name == "executor":
+                                    step_history = state_update.get('step_history', [])
+                                    if step_history:
+                                        st.write("🛠️ **执行器 (Executor)** 完成操作：")
+                                        st.code(step_history[-1], language="text")
+                                        process_logs.append(f"🛠️ **执行器操作**:\n```text\n{step_history[-1]}\n```")
 
-                    for output in agent_app.stream(initial_state, config=run_config):
-                        for node_name, state_update in output.items():
-                            if node_name == "planner":
-                                st.write("🧠 **规划器 (Planner)** 制定了新计划：")
-                                process_logs.append("🧠 **规划器 (Planner)** 制定了新计划：")
-                                plans = state_update.get('plan', [])
-                                tools = state_update.get('planned_tools', [])
-                                for i, (p, t) in enumerate(zip(plans, tools)):
-                                    log_str = f"**Step {i + 1}**: {p} `[Tool: {t}]`"
-                                    st.info(log_str)
-                                    process_logs.append(f"  - {log_str}")
+                                        last_log = step_history[-1]
+                                        match = re.search(r"Result:\s*(.*)", last_log, flags=re.DOTALL)
+                                        parsed_text = match.group(1).strip() if match else last_log.strip()
+                                        parsed_text = re.sub(r"^【.*?执行结果】:\s*", "", parsed_text).strip()
+                                        if parsed_text:
+                                            final_output = parsed_text
 
-                            elif node_name == "executor":
-                                step_history = state_update.get('step_history', [])
-                                if step_history:
-                                    st.write("🛠️ **执行器 (Executor)** 完成操作：")
-                                    st.code(step_history[-1], language="text")
-                                    process_logs.append(f"🛠️ **执行器操作**:\n```text\n{step_history[-1]}\n```")
+                                elif node_name == "evaluator":
+                                    eval_res = state_update.get('evaluation_result', {})
+                                    passed = eval_res.get('passed', False)
+                                    fb = eval_res.get('feedback', '')
+                                    if passed:
+                                        log_str = f"✅ **评估 (Evaluator)**: 步骤通过！(反馈: {fb})"
+                                        st.success(log_str)
+                                    else:
+                                        log_str = f"⚠️ **评估 (Evaluator)**: 未通过，触发修正重试。(反馈: {fb})"
+                                        st.warning(log_str)
+                                    process_logs.append(log_str)
 
-                                    last_log = step_history[-1]
-                                    match = re.search(r"Result:\s*(.*)", last_log, flags=re.DOTALL)
-                                    parsed_text = match.group(1).strip() if match else last_log.strip()
-                                    parsed_text = re.sub(r"^【.*?执行结果】:\s*", "", parsed_text).strip()
-                                    if parsed_text:
-                                        final_output = parsed_text
+                                elif node_name == "give_up":
+                                    final_output = None
 
-                            elif node_name == "evaluator":
-                                eval_res = state_update.get('evaluation_result', {})
-                                passed = eval_res.get('passed', False)
-                                fb = eval_res.get('feedback', '')
-                                if passed:
-                                    log_str = f"✅ **评估 (Evaluator)**: 步骤通过！(反馈: {fb})"
-                                    st.success(log_str)
-                                else:
-                                    log_str = f"⚠️ **评估 (Evaluator)**: 未通过，触发修正重试。(反馈: {fb})"
-                                    st.warning(log_str)
-                                process_logs.append(log_str)
-
-                            elif node_name == "give_up":
-                                final_output = None
-
+                    # 共同结束处理逻辑
                     status.update(label="任务执行完毕！点击查看执行详情", state="complete", expanded=False)
-                    
                     final_answer_display = f"### 执行结果\n{final_output}" if final_output else "未获取到有效结果。"
                     stream_container.markdown(render_markdown_with_images(final_answer_display))
 

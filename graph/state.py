@@ -38,3 +38,19 @@ class AgentState(TypedDict):
 
     # 最终输出
     final_answer: str
+
+
+
+class ReviewerState(TypedDict):
+    """
+    功能四 (Author-Reviewer) 专属状态对象
+    """
+    current_function: str
+    user_prompt: str         # 用户的真实修改意图/提示词
+    draft_content: str       # 当前的草稿/原稿内容
+    feedback: str            # Reviewer 给出的修改意见
+    retry_count: int         # 当前迭代次数
+    max_retries: int         # 最大迭代次数上限
+    status: str              # 状态："pass", "revise", "reject"
+    chat_history: str
+    final_answer: str        # 最终输出内容
