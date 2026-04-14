@@ -274,12 +274,20 @@ def render_chat_page():
                     initial_draft = ""
                     task_prompt = enhanced_prompt
                     
-                    if st.session_state.current_function == "d" and draft_mode == "user_draft":
-                        # 将用户输入的 Prompt（以及后续可能的文档内容）作为初始原稿
-                        initial_draft = prompt
-                        # 修改系统任务：告诉大家现在的任务是审阅
-                        task_prompt = "请对当前草稿进行学术视角的审阅与润色。若提供了参考文档，请校验事实；若未提供，请着重优化语言表达和逻辑规范。"
-
+                    if st.session_state.current_function == "d":
+                        if draft_mode == "user_draft":
+                            # 用户自己提供原稿：用户的输入可能既包含了指令，又包含了草稿
+                            initial_draft = prompt
+                            # 优化任务提示，告知 Agent 从用户的草稿中自行提取附加指令
+                            task_prompt = (
+                                "请对用户提供的原始文本(current_draft)进行学术视角的审阅与润色。"
+                                "注意：该原始文本中可能同时包含了用户提出的【具体修改指令】和【需润色的草稿】。"
+                                "若提供了参考文档，请校验事实的一致性；若未提供，请着重优化语言表达、逻辑规范和用户的特定指令。"
+                            )
+                        else:
+                            # 自动起草模式：用户的输入纯粹是要求和指令
+                            initial_draft = "无"
+                            task_prompt = prompt
                     # 初始化 Agent 状态
                     agent_app = build_graph()
                     initial_state = {
@@ -358,6 +366,7 @@ def render_chat_page():
                                     process_logs.append(f"✍️ **作者撰写草稿**:\n```text\n{step_hist[-1] if step_hist else draft}\n```")
                                     
                                     final_output = draft
+                                    latest_valid_draft = draft
 
                             elif node_name == "reviewer":
                                 # 审稿结果 UI 处理
