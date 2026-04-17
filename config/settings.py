@@ -1,27 +1,35 @@
 import os
 import re
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from utils.multimodal_embedding import DashScopeMultiModalEmbeddings
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency
+    def load_dotenv():
+        return False
 
 load_dotenv()
 
+
 class Settings:
-    # 配置大语言模型API
     API_KEY = os.getenv("API_KEY")
     BASE_URL = os.getenv("BASE_URL")
     MODEL_NAME = os.getenv("MODEL_NAME")
 
-    # 配置向量模型API
     EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY")
     EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL")
     EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME")
 
+    SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
+    SEMANTIC_SCHOLAR_BASE_URL = os.getenv(
+        "SEMANTIC_SCHOLAR_BASE_URL",
+        "https://s2api.ominiai.cn/s2/graph/v1/paper/search",
+    )
+
     @classmethod
     def get_llm(cls, temperature=0.0, streaming=False):
-        """获取统一的 LLM 实例"""
-        
-        # 基础配置参数
+        """返回统一的 LLM 客户端。"""
+        from langchain_openai import ChatOpenAI
+
         model_kwargs = {
             "model": cls.MODEL_NAME,
             "api_key": cls.API_KEY,
@@ -29,42 +37,27 @@ class Settings:
             "temperature": temperature,
             "streaming": streaming,
             "extra_body": {
-                "enable_thinking": False
-            }
+                "enable_thinking": False,
+            },
         }
-        
-        # 核心修复：如果开启了流式输出，强制要求 API 在最后一个 Chunk 中附带 Token 使用量
+
         if streaming:
             model_kwargs["stream_options"] = {"include_usage": True}
 
         return ChatOpenAI(**model_kwargs)
-    
-    # # 获取向量模型
-    # @classmethod
-    # def get_embeddings(cls):
-    #     return OpenAIEmbeddings(
-    #         model=cls.EMBEDDING_MODEL_NAME,
-    #         api_key=cls.EMBEDDING_API_KEY,
-    #         base_url=cls.EMBEDDING_BASE_URL,
-    #         # 绕过本地检查
-    #         check_embedding_ctx_length=False,
-    #         # 遵守阿里云单词请求数量上限
-    #         chunk_size=10,
-    #         max_retries=3
-    #     )
 
-    # 阿里多模态向量模型
     @classmethod
     def get_embeddings(cls):
-        # 切换为阿里多模态向量模型
+        from utils.multimodal_embedding import DashScopeMultiModalEmbeddings
+
         return DashScopeMultiModalEmbeddings(
             api_key=cls.EMBEDDING_API_KEY,
-            model=cls.EMBEDDING_MODEL_NAME
-            )
+            model=cls.EMBEDDING_MODEL_NAME,
+        )
 
     @classmethod
     def get_collection_name(cls, base_name: str) -> str:
-        """Namespace Chroma collections by embedding model to avoid dimension conflicts."""
+        """按 embedding 模型为 Chroma collection 添加命名空间, 避免维度冲突。"""
         model_name = cls.EMBEDDING_MODEL_NAME or "default_embedding"
         suffix = re.sub(r"[^a-zA-Z0-9_-]+", "_", model_name).strip("_").lower()
         if not suffix:

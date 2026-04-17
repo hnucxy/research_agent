@@ -41,6 +41,8 @@ def render_chat_page():
     chat_col, doc_col = st.columns([3, 1], gap="large")
     selected_files_for_agent = []
     selected_image_for_chat = None
+    search_source = st.session_state.get("search_source", "arxiv")
+    semantic_sort_by = st.session_state.get("semantic_sort_by", "relevance")
 
     # 左侧：聊天主界面
     with chat_col:
@@ -56,7 +58,45 @@ def render_chat_page():
 
     # 右侧：文献库与管理
     with doc_col:
-        if st.session_state.current_function in ["c", "d"]:
+        if st.session_state.current_function == "a":
+            with st.expander("🔎 检索设置", expanded=True):
+                source_options = {
+                    "arXiv API": "arxiv",
+                    "Semantic Scholar API": "semantic_scholar",
+                }
+                selected_source_label = st.radio(
+                    "选择文献检索数据源",
+                    options=list(source_options.keys()),
+                    index=0 if search_source == "arxiv" else 1,
+                )
+                search_source = source_options[selected_source_label]
+                st.session_state.search_source = search_source
+
+                if search_source == "semantic_scholar":
+                    semantic_sort_options = {
+                        "Sort by relevance": "relevance",
+                        "Sort by citation count": "citation_count",
+                        "Sort by most influential papers": "most_influential",
+                        "Sort by recency": "recency",
+                    }
+                    current_sort_index = (
+                        list(semantic_sort_options.values()).index(semantic_sort_by)
+                        if semantic_sort_by in semantic_sort_options.values()
+                        else 0
+                    )
+                    selected_sort_label = st.selectbox(
+                        "Semantic Scholar 排序方式",
+                        options=list(semantic_sort_options.keys()),
+                        index=current_sort_index,
+                    )
+                    semantic_sort_by = semantic_sort_options[selected_sort_label]
+                    st.session_state.semantic_sort_by = semantic_sort_by
+                else:
+                    semantic_sort_by = st.session_state.get(
+                        "semantic_sort_by", "relevance"
+                    )
+
+        elif st.session_state.current_function in ["c", "d"]:
             chat_upload_dir = os.path.join(UPLOAD_DIR, st.session_state.current_chat_id)
             
             with st.expander("📁 文献上传与管理", expanded=False):
@@ -326,7 +366,9 @@ def render_chat_page():
                     else:
                         resource_context = build_resource_context(
                             selected_files=selected_files_for_agent,
-                            selected_image_path=selected_image_for_chat
+                            selected_image_path=selected_image_for_chat,
+                            search_source=search_source if st.session_state.current_function == "a" else None,
+                            semantic_sort_by=semantic_sort_by if st.session_state.current_function == "a" else None,
                         )
 
                         initial_state = {
@@ -335,6 +377,8 @@ def render_chat_page():
                             "resource_context": resource_context,
                             "selected_image_path": selected_image_for_chat or "",
                             "chat_history": chat_history_str,
+                            "search_source": search_source,
+                            "semantic_sort_by": semantic_sort_by,
                             "plan": [],
                             "planned_tools": [],
                             "current_step_index": 0,

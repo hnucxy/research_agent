@@ -1,202 +1,197 @@
+import base64
 import os
 import re
-import base64
+
 import streamlit as st
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
-from config.settings import Settings
+
 from config.logger import get_logger
+from config.settings import Settings
 from graph.state import AgentState
+from prompts.executor_prompts import TEXT_GENERATION_PROMPT, TOOL_EXTRACTION_PROMPT
 from tools.academic_writer_tool import AcademicWriterTool
 from tools.arxiv_tool import ArxivSearchTool
-from tools.literature_reader_tool import LiteratureReaderTool
 from tools.literature_rag_tool import LiteratureRagTool
-from prompts.executor_prompts import TOOL_EXTRACTION_PROMPT,TEXT_GENERATION_PROMPT
+from tools.literature_reader_tool import LiteratureReaderTool
+from tools.semantic_scholar_tool import SemanticScholarSearchTool
 from utils.exceptions import ToolExecutionError, ToolExecutionTimeout
 
 logger = get_logger()
 
+
 class ExecutorNode:
     def __init__(self):
         self.llm = Settings.get_llm(temperature=0.1)
-
-        # 注册工具池（未来随意扩充）
         self.tools = {
-            "arxiv_search": ArxivSearchTool(), # arxiv文献检索工具
-            "academic_write": AcademicWriterTool(), # 学术内容写作工具
-            "literature_read": LiteratureReaderTool(), #文献阅读工具
-            "literature_rag_search": LiteratureRagTool() #RAG工具
+            "arxiv_search": ArxivSearchTool(),
+            "semantic_scholar_search": SemanticScholarSearchTool(),
+            "academic_write": AcademicWriterTool(),
+            "literature_read": LiteratureReaderTool(),
+            "literature_rag_search": LiteratureRagTool(),
         }
 
     def __call__(self, state: AgentState) -> dict:
         logger.info("--- [Executor] Node ---")
+
         current_index = state["current_step_index"]
         current_step = state["plan"][current_index]
         tool_name = state["planned_tools"][current_index]
 
-        #处理反馈信息
         feedback = ""
-        # 检查是否是重试循环
         eval_res = state.get("evaluation_result")
-        if eval_res and not  eval_res.get("passed"):
-            feedback = f"\n【⚠️上一次执行未通过，评估专家给出的修正建议】: {eval_res.get('feedback')}\n请务必参考此建议调整本次的工具参数或生成逻辑！"
+        if eval_res and not eval_res.get("passed"):
+            feedback = (
+                f"\n【上一次执行未通过, 评估反馈】{eval_res.get('feedback')}\n"
+                "请据此调整本次工具参数或生成逻辑。"
+            )
 
-
-        # print(f"正在执行步骤: {current_step}")
         logger.info("正在执行步骤: %s", current_step)
         context_raw = "\n".join(state.get("step_history", []))
         context_str = context_raw if context_raw else "无"
         resource_context = state.get("resource_context", "无")
 
-        
-        # 通用路由与执行逻辑
-        
         if tool_name == "memo_output":
-            logger.info("    📦 识别到语义缓存，正在精准提取结论...")
+            logger.info("    正在从语义缓存中提取结果。")
             match = re.search(r"Result:\s*(.*)", current_step, re.DOTALL)
-            output = match.group(1).strip() if match else current_step.replace("【语义缓存直接输出】\n", "").strip()
-            
-            # 经验缓存直接写入主界面
+            output = (
+                match.group(1).strip()
+                if match
+                else current_step.replace("【语义缓存直接输出】\n", "").strip()
+            )
             container = st.session_state.get("current_stream_container")
             if container:
-                container.markdown(f"### 🧠 从历史经验中提取到高价值结论\n\n{output}")
+                container.markdown(f"### 从历史经验中提取到高价值结论\n\n{output}")
         elif tool_name in self.tools:
             tool = self.tools[tool_name]
-            # print(f"    🛠️ 准备调用外部工具: [{tool_name}]")
-            logger.info("    🛠️ 准备调用外部工具: [%s]", tool_name)
+            logger.info("    准备调用工具: [%s]", tool_name)
 
-            # 获取全局原始任务
-            original_task = state.get("task_input", "")
-
-            # 动态获取工具的描述。
-            # 工具类有 description 属性（这是编写 Agent 工具的标准规范）
-            tool_desc = getattr(tool, "prompt_spec", "") or getattr(tool, "description", "执行特定任务的工具")
-
-            # [工程规范修改点]：使用 ChatPromptTemplate 组装链 (Chain)
             prompt_template = ChatPromptTemplate.from_template(TOOL_EXTRACTION_PROMPT)
             chain = prompt_template | self.llm
-
-            # 动态传入变量字典（参数）
-            query_res = chain.invoke({
-                "original_task": original_task,
-                "resource_context": resource_context,
-                "tool_name": tool_name,
-                "tool_desc": tool_desc,
-                "current_step": current_step,
-                "context": context_str,
-                "feedback": feedback
-            })
+            query_res = chain.invoke(
+                {
+                    "original_task": state.get("task_input", ""),
+                    "resource_context": resource_context,
+                    "tool_name": tool_name,
+                    "tool_desc": getattr(tool, "prompt_spec", "")
+                    or getattr(tool, "description", "工具执行"),
+                    "current_step": current_step,
+                    "context": context_str,
+                    "feedback": feedback,
+                }
+            )
             tool_input = query_res.content.strip()
-            # print(f"    解析出的工具参数: [{tool_input}]")
-            logger.info("    解析出的工具参数: [{%s}]", tool_input)
+            logger.info("    解析出的工具参数: [%s]", tool_input)
 
-            # 统一执行接口
             try:
-                # 未来如果加入了超时控制，可以抛出 ToolExecutionTimeout
                 tool_result = tool.run(tool_input)
-                output = f"【{tool_name} 执行结果】:\n{tool_result}"
-            except ToolExecutionTimeout as te:
-                logger.error("工具 %s 执行超时: %s", tool_name, te)
-                output = f"【{tool_name} 执行超时】: 请精简参数或稍后再试。"
-            except ToolExecutionError as te:
-                logger.error("工具 %s 执行失败: %s", tool_name, te)
-                output = f"【{tool_name} 执行失败】: {str(te)}"
-            except Exception as e:
-                # 兜底捕获未知错误
-                logger.exception("工具 %s 发生未知的系统异常", tool_name)
-                output = f"【{tool_name} 发生系统级错误】: {str(e)}"
-
+                output = f"【{tool_name} 执行结果】\n{tool_result}"
+            except ToolExecutionTimeout as exc:
+                logger.error("工具 %s 执行超时: %s", tool_name, exc)
+                output = f"【{tool_name} 执行超时】请精简参数后重试。"
+            except ToolExecutionError as exc:
+                logger.error("工具 %s 执行失败: %s", tool_name, exc)
+                output = f"【{tool_name} 执行失败】{str(exc)}"
+            except Exception as exc:
+                logger.exception("工具 %s 发生未知错误", tool_name)
+                output = f"【{tool_name} 系统错误】{str(exc)}"
         elif tool_name == "generate":
-            logger.info("    ✍️ 执行文本生成/总结/推理任务...")
-
-            # 获取开启了流式的 LLM
-            stream_llm = Settings.get_llm(temperature=0.1, streaming=True)
-            container = st.session_state.get("current_stream_container")
-            output = ""
-            
-            # 尝试从规划任务中提取出用户传递的图片路径
-            selected_img_path = state.get("selected_image_path")
-
-            if selected_img_path and os.path.exists(selected_img_path):
-                logger.info("    🖼️ 识别到用户选中的图表，正在组装 LangChain 多模态消息体...")
-                
-                # 对图片进行 Base64 编码
-                with open(selected_img_path, "rb") as image_file:
-                    base64_image = base64.b64encode(image_file.read()).decode("utf-8")
-                
-                ext = selected_img_path.split('.')[-1].lower()
-                mime_type = "image/png"
-                if ext in ['jpg', 'jpeg']: mime_type = "image/jpeg"
-                elif ext == 'webp': mime_type = "image/webp"
-
-                # 兼顾原有的提示词拼接
-                prompt_text = TEXT_GENERATION_PROMPT.format(
-                    chat_history=state.get("chat_history", "无"),
-                    resource_context=resource_context,
-                    current_step=current_step,
-                    context=context_str
-                )
-                
-                # 按照OpenAI兼容格式组装LangChain多模态content块
-                content_blocks = [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{mime_type};base64,{base64_image}"}
-                    },
-                    {
-                        "type": "text",
-                        "text": prompt_text
-                    }
-                ]
-                
-                messages = [HumanMessage(content=content_blocks)]
-                
-                try:
-                    # 将多模态 invoke 改为 stream
-                    for chunk in stream_llm.stream(messages):
-                        content = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                        if content:
-                            output += content
-                            if container:
-                                container.markdown(f"### 💡 正在进行多模态分析...\n\n{output} ▌")
-                    if container:
-                        container.markdown(f"### 💡 分析完毕\n\n{output}")
-                except Exception as e:
-                    logger.error("多模态生成失败: %s", e)
-                    output = f"【多模态推理失败】: {str(e)}"
-
-            else:
-                # 无图片generate，原有的纯文本链条逻辑不变
-                prompt_template = ChatPromptTemplate.from_template(TEXT_GENERATION_PROMPT)
-                chain = prompt_template | self.llm
-
-                try:
-                    # 将纯文本链条 invoke 改为 stream
-                    for chunk in chain.stream({
-                        "chat_history": state.get("chat_history", "无"),
-                        "resource_context": resource_context,
-                        "current_step": current_step,
-                        "context": context_str
-                    }):
-                        content = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                        if content:
-                            output += content
-                            if container:
-                                container.markdown(f"### 💡 正在总结归纳...\n\n{output} ▌")
-                    if container:
-                        container.markdown(f"### 💡 总结归纳完毕\n\n{output}")
-                except Exception as e:
-                    output = f"【文本生成失败】: {str(e)}"
-
+            logger.info("    正在执行文本生成或推理步骤。")
+            output = self._run_generate_step(
+                state=state,
+                current_step=current_step,
+                context_str=context_str,
+                resource_context=resource_context,
+            )
         else:
-            # print(f"    ⚠️ 警告: 未知工具 '{tool_name}'")
-            logger.warning("    ⚠️ 警告: 未知工具 '%s'", tool_name)
-            output = f"【系统提示】: 无法执行。Planner 分配了未注册的工具 '{tool_name}'。"
+            logger.warning("    分配到了未知工具: %s", tool_name)
+            output = f"【系统提示】无法执行, 未注册工具: '{tool_name}'。"
 
-        # print(f"    步骤输出预览: {output[:100]}...\n")
-        logger.info("     步骤输出：%s", output)
+        logger.info("    步骤输出: %s", output)
         display_step = "从历史经验中提取高价值结论" if tool_name == "memo_output" else current_step
-
         return {
             "step_history": [f"Step: {display_step}\nTool: {tool_name}\nResult: {output}"]
         }
+
+    def _run_generate_step(
+        self,
+        state: AgentState,
+        current_step: str,
+        context_str: str,
+        resource_context: str,
+    ) -> str:
+        stream_llm = Settings.get_llm(temperature=0.1, streaming=True)
+        container = st.session_state.get("current_stream_container")
+        output = ""
+        selected_img_path = state.get("selected_image_path")
+
+        if selected_img_path and os.path.exists(selected_img_path):
+            logger.info("    检测到选中图片, 正在构造多模态输入。")
+            with open(selected_img_path, "rb") as image_file:
+                base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+
+            ext = selected_img_path.split(".")[-1].lower()
+            mime_type = "image/png"
+            if ext in ["jpg", "jpeg"]:
+                mime_type = "image/jpeg"
+            elif ext == "webp":
+                mime_type = "image/webp"
+
+            prompt_text = TEXT_GENERATION_PROMPT.format(
+                chat_history=state.get("chat_history", "无"),
+                resource_context=resource_context,
+                current_step=current_step,
+                context=context_str,
+            )
+            messages = [
+                HumanMessage(
+                    content=[
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime_type};base64,{base64_image}"
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt_text,
+                        },
+                    ]
+                )
+            ]
+
+            try:
+                for chunk in stream_llm.stream(messages):
+                    content = chunk.content if hasattr(chunk, "content") else str(chunk)
+                    if content:
+                        output += content
+                        if container:
+                            container.markdown(f"### 正在进行多模态分析...\n\n{output} ▌")
+                if container:
+                    container.markdown(f"### 分析完毕\n\n{output}")
+            except Exception as exc:
+                logger.error("多模态生成失败: %s", exc)
+                output = f"【多模态推理失败】{str(exc)}"
+            return output
+
+        prompt_template = ChatPromptTemplate.from_template(TEXT_GENERATION_PROMPT)
+        chain = prompt_template | self.llm
+        try:
+            for chunk in chain.stream(
+                {
+                    "chat_history": state.get("chat_history", "无"),
+                    "resource_context": resource_context,
+                    "current_step": current_step,
+                    "context": context_str,
+                }
+            ):
+                content = chunk.content if hasattr(chunk, "content") else str(chunk)
+                if content:
+                    output += content
+                    if container:
+                        container.markdown(f"### 正在总结归纳...\n\n{output} ▌")
+            if container:
+                container.markdown(f"### 总结归纳完毕\n\n{output}")
+        except Exception as exc:
+            output = f"【文本生成失败】{str(exc)}"
+        return output

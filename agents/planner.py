@@ -1,184 +1,193 @@
 from typing import List, Literal
 
+from langchain_chroma import Chroma
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
-from langchain_chroma import Chroma
-from config.settings import Settings
+
 from config.logger import get_logger
+from config.settings import Settings
 from prompts.planner_prompts import PLANNER_SYSTEM_PROMPT, PLANNER_USER_PROMPT
 from utils.exceptions import AgentPlanningError
 
-
-# 1. 动态工具池与数据结构约束 根据当前对话种类进行限定
-# 针对检索、撰写等非阅读功能的工具池（剔除 reading 和 rag）
-NonReadTools = Literal["arxiv_search", "academic_write", "generate"]
-# 包含所有工具的全量工具池
-ReadTools = Literal["arxiv_search", "academic_write", "generate", "literature_read", "literature_rag_search"]
-
-class NonReadPlanStep(BaseModel):
-    task_description: str = Field(description="该步骤需要完成的具体任务描述")
-    tool_name: NonReadTools = Field(description="执行此步骤必须调用的工具。如果不需外部工具请选 'generate'")
-
-class ReadPlanStep(BaseModel):
-    task_description: str = Field(description="该步骤需要完成的具体任务描述")
-    tool_name: ReadTools = Field(description="执行此步骤必须调用的工具。如果不需外部工具请选 'generate'")
-
-class NonReadExecutionPlan(BaseModel):
-    steps: List[NonReadPlanStep] = Field(description="按照执行顺序排列的步骤列表")
-
-class ReadExecutionPlan(BaseModel):
-    steps: List[ReadPlanStep] = Field(description="按照执行顺序排列的步骤列表")
-
-
-# 初始化logger
 logger = get_logger()
 
-# 2. 规划器节点实现
+NonReadTools = Literal[
+    "arxiv_search",
+    "semantic_scholar_search",
+    "academic_write",
+    "generate",
+]
+ReadTools = Literal[
+    "arxiv_search",
+    "semantic_scholar_search",
+    "academic_write",
+    "generate",
+    "literature_read",
+    "literature_rag_search",
+]
+
+
+class NonReadPlanStep(BaseModel):
+    task_description: str = Field(description="该步骤需要完成的具体任务描述。")
+    tool_name: NonReadTools = Field(description="执行该步骤必须调用的工具。")
+
+
+class ReadPlanStep(BaseModel):
+    task_description: str = Field(description="该步骤需要完成的具体任务描述。")
+    tool_name: ReadTools = Field(description="执行该步骤必须调用的工具。")
+
+
+class NonReadExecutionPlan(BaseModel):
+    steps: List[NonReadPlanStep] = Field(description="按执行顺序排列的步骤列表。")
+
+
+class ReadExecutionPlan(BaseModel):
+    steps: List[ReadPlanStep] = Field(description="按执行顺序排列的步骤列表。")
+
 
 class PlannerNode:
     def __init__(self):
-        # 规划节点，严谨起见 temperature 依然设为较低值
         self.llm = Settings.get_llm(temperature=0.1)
-
         self.embeddings = Settings.get_embeddings()
-        # self.parser在运行时动态实例化
 
     def __call__(self, state: dict) -> dict:
         logger.info("")
         logger.info("--- [Planner] Node ---")
+
         user_request = state.get("task_input", "")
         resource_context = state.get("resource_context", "无")
-
-        # 获取传入的当前功能类型，默认 fallback 为 'c'
         current_func = state.get("current_function", "c")
+        search_source = state.get("search_source", "arxiv")
 
-        # 检索并融合记忆/经验
         historical_experience = "无"
         if state.get("replan_count", 0) == 0:
             try:
                 vectorstore = Chroma(
                     collection_name=Settings.get_collection_name("global_experience"),
                     embedding_function=self.embeddings,
-                    persist_directory="./chroma_db"
+                    persist_directory="./chroma_db",
                 )
-                # 检索最相关的 1 条经验
-                docs_with_score = vectorstore.similarity_search_with_score(user_request, k=1)
+                docs_with_score = vectorstore.similarity_search_with_score(
+                    user_request, k=1
+                )
                 if docs_with_score:
                     doc, score = docs_with_score[0]
-                    
                     if current_func != "a" and score < 0.3:
-                        logger.info(f"    [Planner] 命中高度相似经验(score:{score:.2f})，分配 memo_output 工具短路 LLM。")
+                        logger.info(
+                            "    [Planner] 命中高相似度经验(score: %.2f), 分配 memo_output 直接输出。",
+                            score,
+                        )
                         return {
                             "plan": [f"【语义缓存直接输出】\n{doc.page_content}"],
-                            "planned_tools": ["memo_output"], # <--- 修改此处，使用特殊标识
+                            "planned_tools": ["memo_output"],
                             "current_step_index": 0,
                             "retry_count": 0,
-                            "replan_count": 0
+                            "replan_count": 0,
                         }
-                    elif score < 0.6: 
-                        # 2. 检索模块(无论分数多高) 或 非检索模块但相似度一般(需要推敲)
-                        # 将经验提取出来，交由大模型二次确认
+                    if score < 0.6:
                         historical_experience = doc.page_content
-                        logger.info(f"    [Planner] 检索到相关历史经验(score:{score:.2f})，将交由大模型进行二次确认与融合规划...")
-            except Exception as e:
-                logger.warning("    [Planner] 检索经验库跳过或无相关经验。")
+                        logger.info(
+                            "    [Planner] 检索到相关历史经验(score: %.2f)。",
+                            score,
+                        )
+            except Exception:
+                logger.warning("    [Planner] 经验检索跳过或无相关经验。")
 
-        # 动态注入提示，定制二次确认的具体策略
         strategy_hint = "无"
         if historical_experience != "无":
-            if current_func == "a":  # 文献检索：强制双轨
-                strategy_hint = "文献检索有时效性；历史经验只能辅助，仍需优先规划最新检索步骤。"
-            elif current_func == "b": # 学术撰写：整合润色
-                strategy_hint = "若历史经验与当前写作任务强相关，可复用其结构或结论，并结合 `academic_write` 完成撰写。"
-            elif current_func == "c": # 文献阅读：补充验证
-                strategy_hint = "若历史阅读结论已足够，可直接 `generate`；否则结合 `literature_read` 或 `literature_rag_search` 验证。"
+            if current_func == "a":
+                strategy_hint = (
+                    "文献检索具有时效性。历史经验只能辅助参考, 仍应优先规划当前外部检索步骤。"
+                )
+            elif current_func == "b":
+                strategy_hint = (
+                    "如果历史经验与当前写作任务高度相关, 可以复用其结构或结论, 再结合 `academic_write` 完成撰写。"
+                )
+            elif current_func == "c":
+                strategy_hint = (
+                    "如果历史阅读结论已经足够, 可直接使用 `generate`; 否则用 `literature_read` 或 `literature_rag_search` 进一步验证。"
+                )
             else:
-                strategy_hint = "可参考历史经验，但必须先判断是否适用于当前任务。"
+                strategy_hint = "只有在确认历史经验适用于当前任务后, 才可以使用。"
 
-        # 根据对话种类动态选择解析器，从根源限制大模型能看到的 JSON Schema 工具枚举
         if current_func in ["a", "b"]:
             parser = JsonOutputParser(pydantic_object=NonReadExecutionPlan)
-            mode_prompt_addon = "\n\n【动态模式约束】：当前为非文献阅读模式，绝对禁止分配 `literature_read` 或 `literature_rag_search` 工具，请仅从输出格式要求的 Enum 工具列表中进行选择。"
+            mode_prompt_addon = (
+                "\n\n[动态约束] 当前为非阅读模式。"
+                "禁止分配 `literature_read` 或 `literature_rag_search`。"
+            )
         else:
             parser = JsonOutputParser(pydantic_object=ReadExecutionPlan)
             mode_prompt_addon = ""
 
-        # 动态拼接最终的 System Prompt
-        dynamic_system_prompt = PLANNER_SYSTEM_PROMPT + mode_prompt_addon
+        if current_func == "a":
+            if search_source == "semantic_scholar":
+                mode_prompt_addon += (
+                    "\n[检索源约束] 前端选择了 Semantic Scholar。"
+                    "当需要外部论文检索时, 优先使用 `semantic_scholar_search`, 不要切换到 `arxiv_search`。"
+                )
+            else:
+                mode_prompt_addon += (
+                    "\n[检索源约束] 前端选择了 arXiv。"
+                    "当需要外部论文检索时, 使用 `arxiv_search`, 不要切换到 `semantic_scholar_search`。"
+                )
 
-        # 使用导入的常量组装 prompt
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", dynamic_system_prompt),
-            ("user", PLANNER_USER_PROMPT)
-        ])
-
-        # 构建处理链：Prompt -> LLM -> JSON解析器
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", PLANNER_SYSTEM_PROMPT + mode_prompt_addon),
+                ("user", PLANNER_USER_PROMPT),
+            ]
+        )
         chain = prompt | self.llm | parser
-        # 提取历史教训：直接提取 Evaluator 的评估反馈
+
         eval_res = state.get("evaluation_result", {})
         replan_count = state.get("replan_count", 0)
-
-        # 只有在存在评估结果且未通过时，才构造失败教训
         if eval_res and not eval_res.get("passed", True):
             last_plan = state.get("plan", [])
-            feedback = eval_res.get("feedback", "无评估反馈")
+            feedback = eval_res.get("feedback", "无反馈")
             step_history_str = (
-                f"【注意：这是第 {replan_count} 次重新规划】\n"
-                f"你上一次制定的计划步骤是：{last_plan}\n"
-                f"但该计划执行失败。评估专家的拒绝原因与修改建议如下：\n"
-                f"\"{feedback}\"\n"
-                f"要求：请务必吸取上述教训，严格按照专家的建议更换搜索关键词或调整策略，切勿尝试去总结或处理上一次检索到的无效内容！"
+                f"【注意】这是第 {replan_count} 次重新规划。\n"
+                f"上一轮计划为: {last_plan}\n"
+                f"执行失败, 评估反馈如下:\n\"{feedback}\"\n"
+                "请严格吸收这条反馈, 调整检索词或策略, 不要重复处理无效结果。"
             )
         else:
             step_history_str = "无"
+
         try:
-            # 传入 task 和 parser 自动生成的格式要求
-            plan_dict = chain.invoke({
-                "chat_history": state.get("chat_history", "无"),
-                "task": user_request,
-                "resource_context": resource_context,
-                "historical_experience": historical_experience,
-                "strategy_hint": strategy_hint,
-                "step_history": step_history_str,  # 传入失败教训
-                "format_instructions": parser.get_format_instructions()
-            })
+            plan_dict = chain.invoke(
+                {
+                    "chat_history": state.get("chat_history", "无"),
+                    "task": user_request,
+                    "resource_context": resource_context,
+                    "historical_experience": historical_experience,
+                    "strategy_hint": strategy_hint,
+                    "step_history": step_history_str,
+                    "format_instructions": parser.get_format_instructions(),
+                }
+            )
+        except Exception as exc:
+            logger.error("[Error] Planner JSON 解析失败: %s", exc)
+            raise AgentPlanningError(f"Planner 解析模型输出失败: {exc}")
 
-            plan_descriptions = []
-            assigned_tools = []
+        plan_descriptions = []
+        assigned_tools = []
+        for i, step in enumerate(plan_dict.get("steps", []), start=1):
+            desc = step.get("task_description", "")
+            tool = step.get("tool_name", "generate")
+            logger.info("  步骤 %s: %s [工具: %s]", i, desc, tool)
+            plan_descriptions.append(desc)
+            assigned_tools.append(tool)
 
-            # 因为 parser 解析后返回的是 dict，我们需要按字典方式读取
-            for i, step in enumerate(plan_dict.get("steps", [])):
-                desc = step.get("task_description", "")
-                tool = step.get("tool_name", "generate")
-                # print(f"  步骤 {i + 1}: {desc} [分配工具: {tool}]")
-                logger.info("  步骤 %s : %s [分配工具: %s]", i+1, desc, tool)
-                plan_descriptions.append(desc)
-                assigned_tools.append(tool)
+        current_replan_count = state.get("replan_count", 0)
+        if step_history_str != "无":
+            current_replan_count += 1
 
-
-            # 计算全局重规划次数
-            current_replan_count = state.get("replan_count", 0)
-            if step_history_str != "无":
-                current_replan_count += 1
-
-            return {
-                "plan": plan_descriptions,
-                "planned_tools": assigned_tools,  # 传递给 Executor 使用
-                "current_step_index": 0,
-                "retry_count": 0,  # 重置局部重试次数
-                "replan_count": current_replan_count  # 更新全局重规划次数
-            }
-
-        except Exception as e:
-            
-            logger.error("[Error] Planner 解析 JSON 失败: %s", e)
-            raise AgentPlanningError(f"规划器解析大模型输出失败: {e}")
-            # 基础兜底逻辑，防止图直接崩溃
-            # return {
-            #     "plan": [f"直接处理用户任务: {user_request}"],
-            #     "planned_tools": ["generate"],
-            #     "current_step_index": 0,
-            #     "retry_count": 0,
-            #     "replan_count": state.get("replan_count", 0)
-            # }
+        return {
+            "plan": plan_descriptions,
+            "planned_tools": assigned_tools,
+            "current_step_index": 0,
+            "retry_count": 0,
+            "replan_count": current_replan_count,
+        }
