@@ -8,31 +8,13 @@ logger = get_logger()
 
 class ArxivSearchTool(BaseTool):
     name = "arxiv_search"
-    # description = "用于搜索 arXiv 上的科研论文。输入参数为搜索关键词。"
-    # description = "用于搜索 arXiv 上的科研论文。输入参数必须是提炼后的【英文】搜索关键词（如: LLM AND medical diagnosis），不要输入长句或中文。"
-
-    # description = (
-    #     "用于搜索 arXiv 上的科研论文。输入参数必须是一个合法的 JSON 字符串，包含以下字段：\n"
-    #     "- query: (必填) 提炼后的【英文】搜索关键词。请使用双引号确保精确匹配（如: \"large language model\" AND \"medical\"）。如果用户需要特定年份，可以适当加入年份关键词。\n"
-    #     "- max_results: (可选) 返回的文献数量，默认为 5。如果用户要求广泛调研，可以设置为 10 或 20。\n"
-    #     "- sort_by: (可选) 排序方式。可选值为 'relevance' (相关性优先，默认) 或 'submitted_date' (最新提交时间优先)。"
-    # )
-
     description = (
-        "用于搜索 arXiv 上的科研论文（仅返回论文的元信息与摘要，不提供全文内容）。\n"
-        "\n"
-        "【重要限制】：\n"
-        "- 本工具只能返回论文的标题、作者、摘要、链接等信息，无法获取或解析论文全文。\n"
-        "- 因此，不要基于“阅读全文”“深入方法分析”等目标制定复杂计划。\n"
-        "- 本工具适用于：快速检索相关论文、了解研究方向、筛选候选文献。\n"
-        "\n"
-        "【使用建议】：\n"
-        "- 优先生成简洁、精准的英文检索关键词，而不是复杂任务分解。\n"
-        "\n"
-        "输入参数必须是一个合法的 JSON 字符串，包含以下字段：\n"
-        "- query: (必填) 提炼后的【英文】搜索关键词。请使用双引号确保精确匹配（如: \"large language model\" AND \"medical\"）。可以使用 AND / OR 组合关键词。\n"
-        "- max_results: (可选) 返回的文献数量，默认为 5。如果用户要求广泛调研，可以设置为 10 或 20。\n"
-        "- sort_by: (可选) 排序方式。可选值为 'relevance' (相关性优先，默认) 或 'submitted_date' (最新提交时间优先)。"
+        "用于搜索 arXiv 论文，只返回标题、作者、日期、摘要和链接，不提供全文。"
+    )
+    prompt_spec = (
+        "输出 JSON："
+        '{"query":"英文检索词","max_results":5,"sort_by":"relevance|submitted_date"}。'
+        "query 必须简洁、英文、可用 AND/OR 组合；默认 max_results=5。"
     )
 
     def run(self, params: str) -> str:

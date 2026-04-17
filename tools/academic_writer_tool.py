@@ -11,10 +11,11 @@ from prompts.executor_prompts import ACADEMIC_WRITER_PROMPT
 class AcademicWriterTool(BaseTool):
     name = "academic_write"
     description = (
-        "专门用于撰写、润色或扩写具有严谨学术风格的文本。输入参数必须是一个合法的 JSON 字符串，包含以下字段：\n"
-        "- topic: (必填) 需要撰写的具体学术主题或段落核心论点。\n"
-        "- section: (可选) 目标段落类型（如 Abstract, Introduction, Methodology, Conclusion）。\n"
-        "- reference_context: (必填) 撰写该段落所必须依赖的文献和事实上下文。"
+        "用于撰写、润色或扩写学术风格文本。"
+    )
+    prompt_spec = (
+        '输出 JSON：{"topic":"主题","section":"段落类型","reference_context":"事实依据"}。'
+        "必须基于已有事实，不得补造数据。"
     )
 
     def __init__(self):

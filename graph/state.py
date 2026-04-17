@@ -12,6 +12,12 @@ class AgentState(TypedDict):
     # 原始用户输入
     task_input: str
 
+    # 结构化的外部资源提示（如勾选文献、图表）
+    resource_context: str
+
+    # 用户选中的图表路径（如有）
+    selected_image_path: str
+
     # 存放多轮对话历史，初始化时前端传入
     chat_history: str
 

@@ -1,4 +1,5 @@
 import os
+import re
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from utils.multimodal_embedding import DashScopeMultiModalEmbeddings
@@ -60,3 +61,12 @@ class Settings:
             api_key=cls.EMBEDDING_API_KEY,
             model=cls.EMBEDDING_MODEL_NAME
             )
+
+    @classmethod
+    def get_collection_name(cls, base_name: str) -> str:
+        """Namespace Chroma collections by embedding model to avoid dimension conflicts."""
+        model_name = cls.EMBEDDING_MODEL_NAME or "default_embedding"
+        suffix = re.sub(r"[^a-zA-Z0-9_-]+", "_", model_name).strip("_").lower()
+        if not suffix:
+            suffix = "default_embedding"
+        return f"{base_name}_{suffix}"

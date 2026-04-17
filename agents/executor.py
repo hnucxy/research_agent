@@ -45,9 +45,8 @@ class ExecutorNode:
         # print(f"正在执行步骤: {current_step}")
         logger.info("正在执行步骤: %s", current_step)
         context_raw = "\n".join(state.get("step_history", []))
-        # 预处理上下文
         context_str = context_raw if context_raw else "无"
-        # output = ""
+        resource_context = state.get("resource_context", "无")
 
         
         # 通用路由与执行逻辑
@@ -71,7 +70,7 @@ class ExecutorNode:
 
             # 动态获取工具的描述。
             # 工具类有 description 属性（这是编写 Agent 工具的标准规范）
-            tool_desc = getattr(tool, "description", "执行特定任务的工具")
+            tool_desc = getattr(tool, "prompt_spec", "") or getattr(tool, "description", "执行特定任务的工具")
 
             # [工程规范修改点]：使用 ChatPromptTemplate 组装链 (Chain)
             prompt_template = ChatPromptTemplate.from_template(TOOL_EXTRACTION_PROMPT)
@@ -80,6 +79,7 @@ class ExecutorNode:
             # 动态传入变量字典（参数）
             query_res = chain.invoke({
                 "original_task": original_task,
+                "resource_context": resource_context,
                 "tool_name": tool_name,
                 "tool_desc": tool_desc,
                 "current_step": current_step,
@@ -115,8 +115,7 @@ class ExecutorNode:
             output = ""
             
             # 尝试从规划任务中提取出用户传递的图片路径
-            img_match = re.search(r"【多模态提示】：用户勾选了一张本地图表 \((.*?)\)", state.get("task_input", ""))
-            selected_img_path = img_match.group(1).strip() if img_match else None
+            selected_img_path = state.get("selected_image_path")
 
             if selected_img_path and os.path.exists(selected_img_path):
                 logger.info("    🖼️ 识别到用户选中的图表，正在组装 LangChain 多模态消息体...")
@@ -133,6 +132,7 @@ class ExecutorNode:
                 # 兼顾原有的提示词拼接
                 prompt_text = TEXT_GENERATION_PROMPT.format(
                     chat_history=state.get("chat_history", "无"),
+                    resource_context=resource_context,
                     current_step=current_step,
                     context=context_str
                 )
@@ -174,6 +174,7 @@ class ExecutorNode:
                     # 将纯文本链条 invoke 改为 stream
                     for chunk in chain.stream({
                         "chat_history": state.get("chat_history", "无"),
+                        "resource_context": resource_context,
                         "current_step": current_step,
                         "context": context_str
                     }):

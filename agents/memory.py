@@ -33,12 +33,16 @@ class MemoryNode:
             result = history[-1] if history else "无结论"
 
             # 重新组合成高价值文本块
-            experience_text = f"【用户原始问题/任务】: {task}\n【成功执行路径/步骤】: {step_desc}\n【高价值结论】: {result}"
+            experience_text = (
+                f"【用户原始问题/任务】: {task}\n"
+                f"【成功执行路径/步骤】: {step_desc}\n"
+                f"【高价值结论】: {result}"
+            )
             
             try:
                 # 写入到单独的 global_experience Collection
                 vectorstore = Chroma(
-                    collection_name="global_experience",
+                    collection_name=Settings.get_collection_name("global_experience"),
                     embedding_function=self.embeddings,
                     persist_directory="./chroma_db"
                 )

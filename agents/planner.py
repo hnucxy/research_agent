@@ -48,6 +48,7 @@ class PlannerNode:
         logger.info("")
         logger.info("--- [Planner] Node ---")
         user_request = state.get("task_input", "")
+        resource_context = state.get("resource_context", "无")
 
         # 获取传入的当前功能类型，默认 fallback 为 'c'
         current_func = state.get("current_function", "c")
@@ -57,7 +58,7 @@ class PlannerNode:
         if state.get("replan_count", 0) == 0:
             try:
                 vectorstore = Chroma(
-                    collection_name="global_experience",
+                    collection_name=Settings.get_collection_name("global_experience"),
                     embedding_function=self.embeddings,
                     persist_directory="./chroma_db"
                 )
@@ -84,24 +85,17 @@ class PlannerNode:
                 logger.warning("    [Planner] 检索经验库跳过或无相关经验。")
 
         # 动态注入提示，定制二次确认的具体策略
-        enhanced_task = user_request
+        strategy_hint = "无"
         if historical_experience != "无":
             if current_func == "a":  # 文献检索：强制双轨
-                strategy_prompt = "科研文献具有强时效性，绝不能仅依赖历史经验。你必须在规划中同时包含调用文献检索工具（如 arxiv_search）的步骤，以获取最新进展，实现“吸收历史经验 + 检索最新文献”的双轨处理。"
+                strategy_hint = "文献检索有时效性；历史经验只能辅助，仍需优先规划最新检索步骤。"
             elif current_func == "b": # 学术撰写：整合润色
-                strategy_prompt = "请评估该历史撰写经验/结论是否适用于当前写作任务。如果可以复用，请结合 `academic_write` 工具进行内容整合、扩写或润色。"
+                strategy_hint = "若历史经验与当前写作任务强相关，可复用其结构或结论，并结合 `academic_write` 完成撰写。"
             elif current_func == "c": # 文献阅读：补充验证
-                strategy_prompt = "请评估该历史阅读结论是否能直接回答当前问题。如果能，你可以直接将任务分配给 `generate` 生成结论；或者规划 `literature_read` / `literature_rag_search` 进行补充验证。"
+                strategy_hint = "若历史阅读结论已足够，可直接 `generate`；否则结合 `literature_read` 或 `literature_rag_search` 验证。"
             else:
-                strategy_prompt = "请结合当前任务判断是否复用历史经验，并合理分配工具来完成任务。"
+                strategy_hint = "可参考历史经验，但必须先判断是否适用于当前任务。"
 
-            enhanced_task = (
-                f"原始任务：{user_request}\n\n"
-                f"【系统补充：检索到的历史成功经验】\n{historical_experience}\n\n"
-                f"【规划要求】：请对上述历史经验进行二次确认。如果该经验与当前任务强相关，请在接下来的规划中吸收其高价值结论或思路。\n"
-                f"【执行策略】：{strategy_prompt}"
-            )
-        # 
         # 根据对话种类动态选择解析器，从根源限制大模型能看到的 JSON Schema 工具枚举
         if current_func in ["a", "b"]:
             parser = JsonOutputParser(pydantic_object=NonReadExecutionPlan)
@@ -142,7 +136,10 @@ class PlannerNode:
             # 传入 task 和 parser 自动生成的格式要求
             plan_dict = chain.invoke({
                 "chat_history": state.get("chat_history", "无"),
-                "task": enhanced_task,
+                "task": user_request,
+                "resource_context": resource_context,
+                "historical_experience": historical_experience,
+                "strategy_hint": strategy_hint,
                 "step_history": step_history_str,  # 传入失败教训
                 "format_instructions": parser.get_format_instructions()
             })

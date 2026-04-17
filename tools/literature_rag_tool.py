@@ -23,11 +23,9 @@ RAG_SYSTEM_PROMPT = """你是一个专业的学术问答助手。请基于以下
 class LiteratureRagTool(BaseTool):
     name = "literature_rag_search"
     description = (
-        "用于在已上传的文献中进行精准的事实检索、指标提取或特定图表内容的查询。\n"
-        "当用户询问文献里的具体细节（如参数、图表结果、某个实验现象）时使用。\n"
-        "输入参数必须是一个合法的 JSON 字符串，包含以下字段：\n"
-        "- query: (必填) 用户的检索问题或需要提取的具体细节描述。"
+        "用于在已上传文献中做细粒度检索，适合指标、参数、实验现象和图表细节提取。"
     )
+    prompt_spec = '输出 JSON：{"query":"需要检索的具体问题或细节"}。'
 
     def __init__(self):
         self.llm = Settings.get_llm(temperature=0.1, streaming=True)
@@ -48,7 +46,7 @@ class LiteratureRagTool(BaseTool):
             # 连接全局 Chroma 数据库
             try:
                 vectorstore = Chroma(
-                    collection_name="global_research_knowledge",
+                    collection_name=Settings.get_collection_name("global_research_knowledge"),
                     embedding_function=self.embeddings,
                     persist_directory="./chroma_db"
                 )

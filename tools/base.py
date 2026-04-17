@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 class BaseTool(ABC):
     name: str
     description: str
+    prompt_spec: str = ""
 
     @abstractmethod
     def run(self, params: str) -> str:

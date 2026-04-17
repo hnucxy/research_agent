@@ -12,11 +12,11 @@ from config.settings import Settings
 class LiteratureReaderTool(BaseTool):
     name = "literature_read"
     description = (
-        "用于阅读和分析用户上传的本地文献（Markdown格式）。\n"
-        "当用户要求总结特定文献、提取指定文献中的信息或比较多篇文献时，必须调用此工具。\n"
-        "输入参数必须是一个合法的 JSON 字符串，包含以下字段：\n"
-        "- file_path: (必填) 要阅读的文献在系统中的绝对或相对路径。\n"
-        "- query: (必填) 针对该文献提出的具体问题、提取要求或总结指令。"
+        "用于阅读用户选中的本地 Markdown 文献，适合整篇总结、对比和核心贡献提炼。"
+    )
+    prompt_spec = (
+        '输出 JSON：{"file_path":"文献路径","query":"阅读任务"}。'
+        "file_path 必须来自已选文献清单。"
     )
 
     def __init__(self):

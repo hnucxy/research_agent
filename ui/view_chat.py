@@ -13,6 +13,7 @@ from utils.file_utils import get_file_hash, is_file_duplicate, register_file, ge
 from utils.document_parser import parse_pdf_to_markdown
 from utils.exceptions import DocumentParseError
 from utils.token_tracker import TokenTracker
+from utils.prompt_utils import build_resource_context
 
 def render_markdown_with_images(text: str) -> str:
     """提取 Markdown 中的本地路径并将其替换为 Base64 以供 Streamlit 渲染"""
@@ -38,6 +39,8 @@ def render_markdown_with_images(text: str) -> str:
 def render_chat_page():
     func_name = FUNC_MAP.get(st.session_state.current_function, "未知")
     chat_col, doc_col = st.columns([3, 1], gap="large")
+    selected_files_for_agent = []
+    selected_image_for_chat = None
 
     # 左侧：聊天主界面
     with chat_col:
@@ -69,6 +72,12 @@ def render_chat_page():
                     os.makedirs(chat_upload_dir, exist_ok=True)
                     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                     embeddings = Settings.get_embeddings()
+                    research_collection = Settings.get_collection_name("global_research_knowledge")
+                    vectorstore = Chroma(
+                        collection_name=research_collection,
+                        embedding_function=embeddings,
+                        persist_directory="./chroma_db"
+                    )
                     success_count = 0
 
                     for uploaded_file in uploaded_files:
@@ -80,15 +89,25 @@ def render_chat_page():
                         
                         # 防溢出复用机制
                         if is_file_duplicate(file_hash):
-                            st.warning(f"⚠️ 文件 `{uploaded_file.name}` 已存在于全局库中，跳过解析与向量化。")
+                            st.warning(f"⚠️ 文件 `{uploaded_file.name}` 已存在于全局库中，跳过重复解析。")
                             # 获取过往的真实路径并复制到当前会话
                             old_path = get_file_path_from_hash(file_hash)
                             if old_path and os.path.exists(old_path):
                                 shutil.copy2(old_path, file_path)
-                            continue
+                                with open(old_path, "r", encoding="utf-8") as f:
+                                    text_content = f.read()
+
+                                existing = vectorstore._collection.get(
+                                    where={"file_hash": file_hash},
+                                    limit=1
+                                )
+                                if existing and existing.get("ids"):
+                                    continue
+                            else:
+                                continue
 
                         # 新文件解析与存入 Chroma 逻辑保持不变...
-                        if file_ext == "pdf":
+                        elif file_ext == "pdf":
                             with st.spinner(f"正在解析 `{uploaded_file.name}` 并提取图片..."):
                                 try:
                                     text_content = parse_pdf_to_markdown(file_bytes, chat_upload_dir, base_name)
@@ -113,6 +132,7 @@ def render_chat_page():
                             metadatas.append({
                                 "chat_id": st.session_state.current_chat_id, 
                                 "file_name": uploaded_file.name,
+                                "file_hash": file_hash,
                                 "type": "text"
                             })
                             img_paths = re.findall(r'!\[.*?\]\((.*?)\)', chunk)
@@ -122,18 +142,16 @@ def render_chat_page():
                                     metadatas.append({
                                         "chat_id": st.session_state.current_chat_id,
                                         "file_name": uploaded_file.name,
+                                        "file_hash": file_hash,
                                         "type": "image",
                                         "image_path": img_path,
                                         "context": chunk
                                     })
                         
                         if docs_to_insert:
-                            Chroma.from_texts(
+                            vectorstore.add_texts(
                                 texts=docs_to_insert,
                                 metadatas=metadatas,
-                                embedding=embeddings,
-                                collection_name="global_research_knowledge",
-                                persist_directory="./chroma_db"
                             )
                         register_file(file_hash, file_path)
                         success_count += 1
@@ -306,25 +324,16 @@ def render_chat_page():
 
                     # 功能 a/b/c
                     else:
-                       
-                        enhanced_prompt = prompt
-                       
-                        if selected_files_for_agent:
-                            file_list_str = "\n".join([f"- 文件名: {f['name']}, 绝对路径: {os.path.abspath(f['path']).replace(chr(92), '/')}" for f in selected_files_for_agent])
-                            enhanced_prompt += (
-                                f"\n\n【系统隐式提示】：用户已在全局文献库中**勾选**了以下文献。请根据用户需求在以下两个工具中选择：\n"
-                                f"1. 如果用户要求对文献进行全局性概括、总结核心贡献等，请规划并调用 `literature_read`（全文阅读工具）。必须将下方的“绝对路径”填入 file_path 参数中。\n"
-                                f"2. 如果用户询问文献中的具体细节、特定指标、或者定位某个算法步骤，请必须规划并调用 `literature_rag_search` 工具以节省时间。\n"
-                                f"【当前用户勾选的全局文献清单】:\n{file_list_str}\n"
-                            )
-                        if st.session_state.current_function in ["c", "d"] and 'selected_image_for_chat' in locals() and selected_image_for_chat:
-                            enhanced_prompt += (
-                                f"\n\n【多模态提示】：用户勾选了一张本地图表 ({selected_image_for_chat})，请结合这张图片的内容回答用户的问题。此步骤无需调用检索工具，必须规划分配给 `generate` 工具直接执行多模态推理。"
-                            )
+                        resource_context = build_resource_context(
+                            selected_files=selected_files_for_agent,
+                            selected_image_path=selected_image_for_chat
+                        )
 
                         initial_state = {
                             "current_function": st.session_state.current_function,
-                            "task_input": enhanced_prompt,
+                            "task_input": prompt,
+                            "resource_context": resource_context,
+                            "selected_image_path": selected_image_for_chat or "",
                             "chat_history": chat_history_str,
                             "plan": [],
                             "planned_tools": [],
