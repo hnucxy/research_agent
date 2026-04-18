@@ -12,6 +12,11 @@ from ui.session import save_chat
 from utils.file_utils import get_file_hash, is_file_duplicate, register_file, get_file_path_from_hash, get_all_registered_files
 from utils.document_parser import parse_pdf_to_markdown
 from utils.exceptions import DocumentParseError
+from utils.image_utils import (
+    append_image_gallery_to_markdown,
+    extract_markdown_image_paths,
+    resolve_local_image_path,
+)
 from utils.token_tracker import TokenTracker
 from utils.prompt_utils import build_resource_context
 
@@ -23,8 +28,8 @@ def render_markdown_with_images(text: str) -> str:
     
     def replace_image(match):
         alt_text = match.group(1)
-        img_path = match.group(2)
-        if not img_path.startswith("http") and os.path.exists(img_path):
+        img_path = resolve_local_image_path(match.group(2))
+        if img_path and not img_path.startswith("http") and os.path.exists(img_path):
             try:
                 with open(img_path, "rb") as f:
                     b64 = base64.b64encode(f.read()).decode("utf-8")
@@ -172,16 +177,20 @@ def render_chat_page():
                             metadatas.append({
                                 "chat_id": st.session_state.current_chat_id, 
                                 "file_name": uploaded_file.name,
+                                "file_path": os.path.abspath(file_path),
                                 "file_hash": file_hash,
                                 "type": "text"
                             })
-                            img_paths = re.findall(r'!\[.*?\]\((.*?)\)', chunk)
+                            img_paths = extract_markdown_image_paths(
+                                chunk, document_path=file_path
+                            )
                             for img_path in img_paths:
                                 if os.path.exists(img_path):
                                     docs_to_insert.append(f"image://{img_path}")
                                     metadatas.append({
                                         "chat_id": st.session_state.current_chat_id,
                                         "file_name": uploaded_file.name,
+                                        "file_path": os.path.abspath(file_path),
                                         "file_hash": file_hash,
                                         "type": "image",
                                         "image_path": img_path,
@@ -241,7 +250,9 @@ def render_chat_page():
                             with open(f["path"], "r", encoding="utf-8") as file:
                                 md_content = file.read()
                                 # 正则提取文献中通过 pymupdf 解析出的图片绝对路径
-                                imgs = re.findall(r'!\[.*?\]\((.*?)\)', md_content)
+                                imgs = extract_markdown_image_paths(
+                                    md_content, document_path=f["path"]
+                                )
                                 for img in imgs:
                                     if os.path.exists(img) and img not in all_images:
                                         all_images.append(img)
@@ -291,6 +302,7 @@ def render_chat_page():
                     run_config = {"callbacks": [tracker]}
                     process_logs = []
                     final_output = ""
+                    auto_image_paths = []
 
                     # 功能四 (Author-Reviewer
                     if st.session_state.current_function == "d":
@@ -376,6 +388,7 @@ def render_chat_page():
                             "task_input": prompt,
                             "resource_context": resource_context,
                             "selected_image_path": selected_image_for_chat or "",
+                            "retrieved_image_paths": [],
                             "chat_history": chat_history_str,
                             "search_source": search_source,
                             "semantic_sort_by": semantic_sort_by,
@@ -405,6 +418,8 @@ def render_chat_page():
                                         process_logs.append(f"  - {log_str}")
 
                                 elif node_name == "executor":
+                                    if state_update.get("retrieved_image_paths"):
+                                        auto_image_paths = state_update.get("retrieved_image_paths", [])
                                     step_history = state_update.get('step_history', [])
                                     if step_history:
                                         st.write("🛠️ **执行器 (Executor)** 完成操作：")
@@ -436,6 +451,11 @@ def render_chat_page():
                     # 共同结束处理逻辑
                     status.update(label="任务执行完毕！点击查看执行详情", state="complete", expanded=False)
                     final_answer_display = f"### 执行结果\n{final_output}" if final_output else "未获取到有效结果。"
+                    final_answer_display = append_image_gallery_to_markdown(
+                        final_answer_display,
+                        auto_image_paths,
+                        title="**文献自动命中的相关图表**",
+                    )
                     stream_container.markdown(render_markdown_with_images(final_answer_display))
 
                     st.session_state.messages.append({

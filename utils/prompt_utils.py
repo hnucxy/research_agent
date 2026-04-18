@@ -20,9 +20,7 @@ def build_resource_context(
                 "- 约束: 外部论文检索时使用 `semantic_scholar_search`。"
             )
         elif search_source == "arxiv":
-            search_lines.append(
-                "- 约束: 外部论文检索时使用 `arxiv_search`。"
-            )
+            search_lines.append("- 约束: 外部论文检索时使用 `arxiv_search`。")
 
         blocks.append("[检索偏好]\n" + "\n".join(search_lines))
 
@@ -37,7 +35,8 @@ def build_resource_context(
         blocks.append(
             "[已选文献]\n"
             + "\n".join(file_lines)
-            + "\n文献整体总结或对比优先使用 `literature_read`, 具体事实和定位优先使用 `literature_rag_search`。"
+            + "\n整体总结或对比优先使用 `literature_read`，具体事实、定位与图表命中优先使用 `literature_rag_search`。"
+            + "\n如果调用 `literature_rag_search`，可在工具参数中传入这些 `file_paths` 以限制检索范围。"
         )
 
     if selected_image_path:
@@ -45,7 +44,7 @@ def build_resource_context(
         blocks.append(
             "[已选图片]\n"
             f"- {abs_image_path}\n"
-            "如果任务依赖图片内容, 优先使用 `generate` 进行直接的多模态分析。"
+            "如果任务依赖图片内容，优先使用 `generate` 进行直接的多模态分析。"
         )
 
     return "\n\n".join(blocks) if blocks else "无"

@@ -1,5 +1,3 @@
-import base64
-import os
 import re
 
 import streamlit as st
@@ -15,7 +13,12 @@ from tools.arxiv_tool import ArxivSearchTool
 from tools.literature_rag_tool import LiteratureRagTool
 from tools.literature_reader_tool import LiteratureReaderTool
 from tools.semantic_scholar_tool import SemanticScholarSearchTool
-from utils.exceptions import ToolExecutionError, ToolExecutionTimeout
+from utils.exceptions import (
+    ToolExecutionError,
+    ToolExecutionTimeout,
+    VectorDBConnectionError,
+)
+from utils.image_utils import encode_image_to_data_url, unique_existing_image_paths
 
 logger = get_logger()
 
@@ -42,7 +45,7 @@ class ExecutorNode:
         eval_res = state.get("evaluation_result")
         if eval_res and not eval_res.get("passed"):
             feedback = (
-                f"\n【上一次执行未通过, 评估反馈】{eval_res.get('feedback')}\n"
+                f"\n【上一次执行未通过，评估反馈】{eval_res.get('feedback')}\n"
                 "请据此调整本次工具参数或生成逻辑。"
             )
 
@@ -50,6 +53,7 @@ class ExecutorNode:
         context_raw = "\n".join(state.get("step_history", []))
         context_str = context_raw if context_raw else "无"
         resource_context = state.get("resource_context", "无")
+        state_update = {}
 
         if tool_name == "memo_output":
             logger.info("    正在从语义缓存中提取结果。")
@@ -62,6 +66,7 @@ class ExecutorNode:
             container = st.session_state.get("current_stream_container")
             if container:
                 container.markdown(f"### 从历史经验中提取到高价值结论\n\n{output}")
+
         elif tool_name in self.tools:
             tool = self.tools[tool_name]
             logger.info("    准备调用工具: [%s]", tool_name)
@@ -89,12 +94,20 @@ class ExecutorNode:
             except ToolExecutionTimeout as exc:
                 logger.error("工具 %s 执行超时: %s", tool_name, exc)
                 output = f"【{tool_name} 执行超时】请精简参数后重试。"
-            except ToolExecutionError as exc:
+            except (ToolExecutionError, VectorDBConnectionError) as exc:
                 logger.error("工具 %s 执行失败: %s", tool_name, exc)
                 output = f"【{tool_name} 执行失败】{str(exc)}"
             except Exception as exc:
                 logger.exception("工具 %s 发生未知错误", tool_name)
                 output = f"【{tool_name} 系统错误】{str(exc)}"
+
+            if tool_name == "literature_rag_search":
+                prior_images = state.get("retrieved_image_paths", [])
+                rag_images = getattr(tool, "last_retrieved_images", [])
+                merged_images = unique_existing_image_paths([*prior_images, *rag_images])
+                if merged_images:
+                    state_update["retrieved_image_paths"] = merged_images
+
         elif tool_name == "generate":
             logger.info("    正在执行文本生成或推理步骤。")
             output = self._run_generate_step(
@@ -103,15 +116,21 @@ class ExecutorNode:
                 context_str=context_str,
                 resource_context=resource_context,
             )
+
         else:
             logger.warning("    分配到了未知工具: %s", tool_name)
-            output = f"【系统提示】无法执行, 未注册工具: '{tool_name}'。"
+            output = f"【系统提示】无法执行，未注册工具 '{tool_name}'。"
 
         logger.info("    步骤输出: %s", output)
-        display_step = "从历史经验中提取高价值结论" if tool_name == "memo_output" else current_step
-        return {
-            "step_history": [f"Step: {display_step}\nTool: {tool_name}\nResult: {output}"]
-        }
+        display_step = (
+            "从历史经验中提取高价值结论"
+            if tool_name == "memo_output"
+            else current_step
+        )
+        state_update["step_history"] = [
+            f"Step: {display_step}\nTool: {tool_name}\nResult: {output}"
+        ]
+        return state_update
 
     def _run_generate_step(
         self,
@@ -123,43 +142,41 @@ class ExecutorNode:
         stream_llm = Settings.get_llm(temperature=0.1, streaming=True)
         container = st.session_state.get("current_stream_container")
         output = ""
-        selected_img_path = state.get("selected_image_path")
 
-        if selected_img_path and os.path.exists(selected_img_path):
-            logger.info("    检测到选中图片, 正在构造多模态输入。")
-            with open(selected_img_path, "rb") as image_file:
-                base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+        selected_image_path = state.get("selected_image_path")
+        retrieved_image_paths = state.get("retrieved_image_paths", [])
+        multimodal_images = unique_existing_image_paths(
+            [selected_image_path, *retrieved_image_paths]
+        )
 
-            ext = selected_img_path.split(".")[-1].lower()
-            mime_type = "image/png"
-            if ext in ["jpg", "jpeg"]:
-                mime_type = "image/jpeg"
-            elif ext == "webp":
-                mime_type = "image/webp"
-
+        if multimodal_images:
+            logger.info("    检测到图片上下文，使用多模态输入生成答案。")
             prompt_text = TEXT_GENERATION_PROMPT.format(
                 chat_history=state.get("chat_history", "无"),
                 resource_context=resource_context,
                 current_step=current_step,
                 context=context_str,
             )
-            messages = [
-                HumanMessage(
-                    content=[
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{mime_type};base64,{base64_image}"
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt_text,
-                        },
-                    ]
-                )
-            ]
 
+            content_blocks = [
+                {
+                    "type": "text",
+                    "text": (
+                        "请结合以下文本上下文与附带图片回答任务。"
+                        "其中图片可能来自用户手动勾选，也可能来自文献 RAG 自动命中的图表。\n\n"
+                        f"{prompt_text}"
+                    ),
+                }
+            ]
+            for image_path in multimodal_images[:3]:
+                content_blocks.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": encode_image_to_data_url(image_path)},
+                    }
+                )
+
+            messages = [HumanMessage(content=content_blocks)]
             try:
                 for chunk in stream_llm.stream(messages):
                     content = chunk.content if hasattr(chunk, "content") else str(chunk)

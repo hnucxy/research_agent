@@ -7,6 +7,7 @@ class AgentState(TypedDict):
     task_input: str
     resource_context: str
     selected_image_path: str
+    retrieved_image_paths: List[str]
     chat_history: str
 
     search_source: str

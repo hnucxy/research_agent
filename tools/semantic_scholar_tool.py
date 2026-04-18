@@ -6,7 +6,7 @@ from urllib.request import Request, urlopen
 
 from config.logger import get_logger
 from config.settings import Settings
-from .base import BaseTool
+from tools.base import BaseTool
 
 logger = get_logger()
 
@@ -14,12 +14,12 @@ logger = get_logger()
 class SemanticScholarSearchTool(BaseTool):
     name = "semantic_scholar_search"
     description = (
-        "用于搜索 Semantic Scholar 论文, 返回标题、作者、年份、摘要、总引用量、重要引用量和链接。"
+        "用于搜索 Semantic Scholar 论文，返回标题、作者、年份、摘要、总引用量、重要引用量和链接。"
     )
     prompt_spec = (
         '输出 JSON: {"query":"英文检索词","max_results":5,"sort_by":"relevance|citation_count|most_influential|recency"}。'
-        "使用简洁的英文关键词, 默认 max_results=5。"
-        "当前端选择了 Semantic Scholar 排序方式时, 必须严格遵循。"
+        " 使用简洁的英文关键词，默认 max_results=5。"
+        " 当前前端若选择了 Semantic Scholar 排序方式，必须严格遵守。"
     )
 
     SORT_MAPPING = {
@@ -29,9 +29,7 @@ class SemanticScholarSearchTool(BaseTool):
         "recency": "publicationDate:desc",
     }
 
-    FIELDS = (
-        "title,authors,year,citationCount,influentialCitationCount,url,abstract"
-    )
+    FIELDS = "title,authors,year,citationCount,influentialCitationCount,url,abstract"
 
     def run(self, params: str) -> str:
         clean_params = params.strip()
@@ -41,17 +39,14 @@ class SemanticScholarSearchTool(BaseTool):
         try:
             args = json.loads(clean_params)
         except json.JSONDecodeError:
-            return (
-                "Semantic Scholar 搜索出错: JSON 参数不合法。"
-                f"原始内容: {params}"
-            )
+            return f"Semantic Scholar 搜索出错: invalid JSON. 原始内容: {params}"
 
         query = (args.get("query") or "").strip()
         max_results = args.get("max_results", 5)
         sort_by = (args.get("sort_by") or "relevance").strip()
 
         if not query:
-            return "Semantic Scholar 搜索出错: 缺少必填参数 `query`。"
+            return "Semantic Scholar 搜索出错: missing required field `query`."
 
         try:
             max_results = int(max_results)
@@ -64,10 +59,7 @@ class SemanticScholarSearchTool(BaseTool):
 
         api_key = Settings.SEMANTIC_SCHOLAR_API_KEY
         if not api_key:
-            return (
-                "Semantic Scholar 搜索出错: 缺少 "
-                "`SEMANTIC_SCHOLAR_API_KEY`。"
-            )
+            return "Semantic Scholar 搜索出错: missing `SEMANTIC_SCHOLAR_API_KEY`."
 
         params_dict = {
             "query": query,
@@ -104,7 +96,7 @@ class SemanticScholarSearchTool(BaseTool):
 
         papers = data.get("data", [])
         if not papers:
-            return "未找到相关论文。建议尝试更宽泛的关键词。"
+            return "未找到相关论文。No results found. 建议尝试更宽泛的关键词。"
 
         if sort_by == "citation_count":
             papers = sorted(

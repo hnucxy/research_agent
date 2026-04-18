@@ -4,19 +4,17 @@ import re
 import arxiv
 
 from config.logger import get_logger
-from .base import BaseTool
+from tools.base import BaseTool
 
 logger = get_logger()
 
 
 class ArxivSearchTool(BaseTool):
     name = "arxiv_search"
-    description = (
-        "用于搜索 arXiv 论文, 返回标题、作者、发布日期、摘要和链接。"
-    )
+    description = "用于搜索 arXiv 论文，返回标题、作者、发布日期、摘要和链接。"
     prompt_spec = (
         '输出 JSON: {"query":"英文检索词","max_results":5,"sort_by":"relevance|submitted_date"}。'
-        "使用简洁的英文关键词, 默认 max_results=5。"
+        " 使用简洁的英文关键词，默认 max_results=5。"
     )
 
     def run(self, params: str) -> str:
@@ -27,14 +25,14 @@ class ArxivSearchTool(BaseTool):
         try:
             args = json.loads(clean_params)
         except json.JSONDecodeError:
-            return f"Arxiv 搜索出错: JSON 参数不合法。原始内容: {params}"
+            return f"Arxiv 搜索出错: invalid JSON. 原始内容: {params}"
 
         query = (args.get("query") or "").strip()
         max_results = args.get("max_results", 5)
         sort_str = (args.get("sort_by") or "relevance").strip()
 
         if not query:
-            return "Arxiv 搜索出错: 缺少必填参数 `query`。"
+            return "Arxiv 搜索出错: missing required field `query`."
 
         try:
             max_results = int(max_results)
@@ -72,6 +70,6 @@ class ArxivSearchTool(BaseTool):
                     "---"
                 )
 
-            return "\n".join(results) if results else "未找到相关论文。"
+            return "\n".join(results) if results else "未找到相关论文。No results found."
         except Exception as exc:
             return f"Arxiv 搜索出错: {str(exc)}"
