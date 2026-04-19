@@ -557,13 +557,34 @@ def _handle_general_flow(
     return final_output, auto_image_paths
 
 
+def _render_document_management_panel(chat_upload_dir: str):
+    with st.expander("文献上传与管理", expanded=False):
+        upload_col, library_col = st.columns(2, gap="large")
+
+        with upload_col:
+            _handle_document_upload(chat_upload_dir)
+
+        with library_col:
+            return _render_global_document_selector()
+
+    return [], None
+
+
 def render_chat_page():
     func_name = FUNC_MAP.get(st.session_state.current_function, "未知")
-    chat_col, doc_col = st.columns([3, 1], gap="large")
+    current_function = st.session_state.current_function
+    use_side_panel = current_function == "a"
+    use_document_panel = current_function in ["c", "d"]
     selected_files_for_agent = []
     selected_image_for_chat = None
     search_source = st.session_state.get("search_source", "arxiv")
     semantic_sort_by = st.session_state.get("semantic_sort_by", "relevance")
+
+    if use_side_panel:
+        chat_col, side_col = st.columns([3, 1], gap="large")
+    else:
+        chat_col = st.container()
+        side_col = None
 
     with chat_col:
         st.title(f"智能科研助手 - {func_name}")
@@ -576,20 +597,18 @@ def render_chat_page():
                             render_rich_markdown(log)
                 render_rich_markdown(msg["content"])
 
-    with doc_col:
-        if st.session_state.current_function == "a":
+        if use_document_panel:
+            chat_upload_dir = os.path.join(UPLOAD_DIR, st.session_state.current_chat_id)
+            (
+                selected_files_for_agent,
+                selected_image_for_chat,
+            ) = _render_document_management_panel(chat_upload_dir)
+
+    if side_col is not None:
+        with side_col:
             search_source, semantic_sort_by = _render_search_settings(
                 search_source, semantic_sort_by
             )
-        elif st.session_state.current_function in ["c", "d"]:
-            chat_upload_dir = os.path.join(UPLOAD_DIR, st.session_state.current_chat_id)
-            with st.expander("文献上传与管理", expanded=False):
-                _handle_document_upload(chat_upload_dir)
-                st.divider()
-                (
-                    selected_files_for_agent,
-                    selected_image_for_chat,
-                ) = _render_global_document_selector()
 
     placeholder_text = "请输入你的科研需求..."
     if prompt := st.chat_input(placeholder_text):
