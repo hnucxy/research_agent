@@ -4,18 +4,18 @@ from config.settings import Settings
 
 
 NO_RESULT_PATTERNS = (
-    "\u672a\u627e\u5230\u76f8\u5173\u8bba\u6587",
-    "\u672a\u68c0\u7d22\u5230\u76f8\u5173\u5185\u5bb9",
+    "未找到相关论文",
+    "未检索到相关内容",
     "no results",
     "no result",
     "no papers found",
 )
 
 PARAMETER_ERROR_PATTERNS = (
-    "\u53c2\u6570\u89e3\u6790\u5931\u8d25",
-    "\u53c2\u6570\u4e0d\u80fd\u4e3a\u7a7a",
-    "\u7f3a\u5c11\u5fc5\u586b\u53c2\u6570",
-    "\u5408\u6cd5 json",
+    "参数解析失败",
+    "参数不能为空",
+    "缺少必填参数",
+    "合法 json",
     "json",
     "json decode",
     "invalid json",
