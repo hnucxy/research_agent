@@ -4,6 +4,7 @@ import json
 HISTORY_DIR = "chat_history"
 UPLOAD_DIR = "uploads"
 REGISTRY_FILE = "uploaded_files_registry.json"
+MEMORY_AUDIT_LOG_FILE = "logs/memory_audit.jsonl"
 
 FUNC_MAP = {
     "a": "文献检索",

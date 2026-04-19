@@ -20,12 +20,18 @@ from utils.file_utils import (
     get_file_path_from_hash,
     is_file_duplicate,
     register_file,
-    unregister_file,
 )
 from utils.image_utils import (
     append_image_gallery_to_markdown,
     extract_markdown_image_paths,
     resolve_local_image_path,
+)
+from utils.memory_governance import (
+    MEMORY_COLLECTION_OPTIONS,
+    delete_memory_entries,
+    get_memory_audit_log_path,
+    get_memory_stats,
+    list_memory_entries,
 )
 from utils.prompt_utils import build_resource_context
 from utils.token_tracker import TokenTracker
@@ -297,13 +303,6 @@ def _handle_document_upload(chat_upload_dir: str):
 def _render_global_document_selector():
     global_files = get_all_registered_files()
     selected_files_for_agent = []
-    research_collection = Settings.get_collection_name("global_research_knowledge")
-    vectorstore = Chroma(
-        collection_name=research_collection,
-        embedding_function=Settings.get_embeddings(),
-        persist_directory="./chroma_db",
-    )
-
     unique_md_files = {}
     for file_hash, file_path in global_files.items():
         if file_path.endswith(".md") and os.path.exists(file_path):
@@ -334,10 +333,12 @@ def _render_global_document_selector():
 
         delete_key = f"del_global_{file_path}"
         if col2.button("删除", key=delete_key, help="删除此物理文献"):
-            vectorstore._collection.delete(where={"file_hash": file_hash})
-            unregister_file(file_hash)
-            if os.path.exists(file_path):
-                os.remove(file_path)
+            delete_memory_entries(
+                collection_key="research",
+                entry_ids=[file_hash],
+                actor=_build_memory_governance_actor(),
+                action="single_delete_document_selector",
+            )
             logger.info(
                 "删除全局文献及向量记录 | file_name=%s | file_hash=%s",
                 file_name,
@@ -384,6 +385,159 @@ def _render_global_document_selector():
                 selected_image_for_chat = selected_img_opt
 
     return selected_files_for_agent, selected_image_for_chat
+
+
+def _build_memory_governance_actor() -> str:
+    current_function = st.session_state.get("current_function") or "none"
+    current_chat_id = st.session_state.get("current_chat_id") or "none"
+    return f"function:{current_function}|chat:{current_chat_id}"
+
+
+def _format_memory_entry_label(collection_key: str, row: dict) -> str:
+    entry_id = row.get("entry_id", "")
+    if collection_key == "research":
+        file_name = row.get("文件名", "")
+        return f"{file_name or '未命名文献'} | {entry_id}"
+    if collection_key == "failure":
+        failure_type = row.get("失败类型", "")
+        preview = row.get("内容预览", "")
+        return f"{failure_type or 'unknown'} | {entry_id} | {preview}"
+    preview = row.get("内容预览", "")
+    return f"{entry_id} | {preview}"
+
+
+def _render_memory_overview_tab():
+    collection_key = st.selectbox(
+        "选择记忆库",
+        options=list(MEMORY_COLLECTION_OPTIONS.keys()),
+        format_func=lambda key: MEMORY_COLLECTION_OPTIONS[key],
+        key="memory_view_collection",
+    )
+    rows = list_memory_entries(collection_key)
+    st.caption("最多展示 50 条记录。")
+    if rows:
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        st.info("当前记忆库暂无记录。")
+
+
+def _render_memory_cleanup_tab():
+    collection_key = st.selectbox(
+        "选择要清理的记忆库",
+        options=list(MEMORY_COLLECTION_OPTIONS.keys()),
+        format_func=lambda key: MEMORY_COLLECTION_OPTIONS[key],
+        key="memory_cleanup_collection",
+    )
+    rows = list_memory_entries(collection_key)
+    if not rows:
+        st.info("当前记忆库暂无可清理记录。")
+        return
+
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+    option_labels = [_format_memory_entry_label(collection_key, row) for row in rows]
+    option_to_id = {
+        _format_memory_entry_label(collection_key, row): row["entry_id"] for row in rows
+    }
+    actor = _build_memory_governance_actor()
+
+    st.write("**单条清理**")
+    single_target = st.selectbox(
+        "选择单条记录",
+        options=[""] + option_labels,
+        key="memory_single_delete_target",
+    )
+    if st.button("删除该条记录", key="memory_single_delete_button"):
+        if not single_target:
+            st.warning("请先选择一条记录。")
+        else:
+            result = delete_memory_entries(
+                collection_key=collection_key,
+                entry_ids=[option_to_id[single_target]],
+                actor=actor,
+                action="single_delete",
+            )
+            st.success(
+                f"已删除 {result['deleted_entries']} 条记录，影响 {result['deleted_vectors']} 条向量。"
+            )
+            st.rerun()
+
+    st.write("**批量清理**")
+    batch_targets = st.multiselect(
+        "选择多条记录",
+        options=option_labels,
+        key="memory_batch_delete_targets",
+    )
+    if st.button("批量删除选中记录", key="memory_batch_delete_button", type="primary"):
+        if not batch_targets:
+            st.warning("请至少选择一条记录。")
+        else:
+            result = delete_memory_entries(
+                collection_key=collection_key,
+                entry_ids=[option_to_id[label] for label in batch_targets],
+                actor=actor,
+                action="batch_delete",
+            )
+            st.success(
+                f"已删除 {result['deleted_entries']} 条记录，影响 {result['deleted_vectors']} 条向量。"
+            )
+            st.rerun()
+
+
+def _render_memory_stats_tab():
+    stats = get_memory_stats()
+    collection_stats = stats.get("collections", {})
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("向量总数", stats.get("overall_total_vectors", 0))
+    col2.metric(
+        "成功经验数",
+        collection_stats.get("experience", {}).get("total_vectors", 0),
+    )
+    col3.metric(
+        "失败经验数",
+        collection_stats.get("failure", {}).get("total_vectors", 0),
+    )
+    col4.metric(
+        "文献文件数",
+        collection_stats.get("research", {}).get("document_count", 0),
+    )
+
+    experience_stats = collection_stats.get("experience", {})
+    failure_stats = collection_stats.get("failure", {})
+    research_stats = collection_stats.get("research", {})
+
+    with st.container(border=True):
+        st.write("**成功经验库**")
+        st.write(f"记录数：{experience_stats.get('total_vectors', 0)}")
+
+    with st.container(border=True):
+        st.write("**失败经验库**")
+        st.write(f"记录数：{failure_stats.get('total_vectors', 0)}")
+        breakdown = failure_stats.get("failure_breakdown", [])
+        if breakdown:
+            st.dataframe(breakdown, use_container_width=True, hide_index=True)
+
+    with st.container(border=True):
+        st.write("**文献知识库**")
+        st.write(f"文件数：{research_stats.get('document_count', 0)}")
+        st.write(f"文本块数：{research_stats.get('text_chunk_count', 0)}")
+        st.write(f"图片块数：{research_stats.get('image_chunk_count', 0)}")
+        st.write(f"向量总数：{research_stats.get('total_vectors', 0)}")
+
+    st.caption(f"审计日志写入路径：`{get_memory_audit_log_path()}`")
+
+
+def _render_memory_governance_panel():
+    with st.expander("记忆治理", expanded=False):
+        overview_tab, cleanup_tab, stats_tab = st.tabs(
+            ["可视化查看", "清理", "统计面板"]
+        )
+        with overview_tab:
+            _render_memory_overview_tab()
+        with cleanup_tab:
+            _render_memory_cleanup_tab()
+        with stats_tab:
+            _render_memory_stats_tab()
 
 
 def _handle_reviewer_flow(
@@ -603,6 +757,8 @@ def render_chat_page():
                 selected_files_for_agent,
                 selected_image_for_chat,
             ) = _render_document_management_panel(chat_upload_dir)
+
+        _render_memory_governance_panel()
 
     if side_col is not None:
         with side_col:
