@@ -1,11 +1,24 @@
 import os
 import pymupdf4llm
+
+from config.logger import get_logger
 from utils.exceptions import DocumentParseError
 
-def parse_pdf_to_markdown(pdf_bytes: bytes, output_dir: str, base_name: str) -> str:
+logger = get_logger()
+
+
+def parse_pdf_to_markdown(
+    pdf_bytes: bytes,
+    output_dir: str,
+    base_name: str,
+    file_name: str,
+    file_hash: str,
+) -> str:
     """
     将 PDF 转换为 Markdown 并提取其中的图表到本地。
     """
+    logger.info("开始PDF解析 | file_name=%s | file_hash=%s", file_name, file_hash)
+
     # 先将上传的 PDF 字节流暂存为本地文件，以便 PyMuPDF 读取
     temp_pdf_path = os.path.join(output_dir, f"temp_{base_name}.pdf")
     with open(temp_pdf_path, "wb") as f:
@@ -24,8 +37,10 @@ def parse_pdf_to_markdown(pdf_bytes: bytes, output_dir: str, base_name: str) -> 
             image_format="png",
             dpi=300
         )
+        logger.info("完成PDF解析 | file_name=%s | file_hash=%s", file_name, file_hash)
         return md_text
     except Exception as e:
+        logger.exception("PDF解析阶段异常 | file_name=%s | file_hash=%s", file_name, file_hash)
         # 抛出自定义文档解析异常
         raise DocumentParseError(f"PDF 转换为 Markdown 失败: {str(e)}")
     finally:

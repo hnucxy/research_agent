@@ -18,12 +18,14 @@ NonReadTools = Literal[
     "semantic_scholar_search",
     "academic_write",
     "generate",
+    "trigger_reviewer_loop",
 ]
 ReadTools = Literal[
     "arxiv_search",
     "semantic_scholar_search",
     "academic_write",
     "generate",
+    "trigger_reviewer_loop",
     "literature_read",
     "literature_rag_search",
 ]
@@ -94,13 +96,13 @@ class PlannerNode:
         if current_func == "a":
             if search_source == "semantic_scholar":
                 mode_prompt_addon += (
-                    "\n[检索源约束] 前端选择了 Semantic Scholar。"
+                    "\n[检索源约束] 前端已选择 Semantic Scholar。"
                     "当需要外部论文检索时，优先使用 `semantic_scholar_search`，"
                     "不要切换到 `arxiv_search`。"
                 )
             else:
                 mode_prompt_addon += (
-                    "\n[检索源约束] 前端选择了 arXiv。"
+                    "\n[检索源约束] 前端已选择 arXiv。"
                     "当需要外部论文检索时，使用 `arxiv_search`，"
                     "不要切换到 `semantic_scholar_search`。"
                 )
@@ -183,7 +185,7 @@ class PlannerNode:
                 doc, score = docs_with_score[0]
                 if current_func != "a" and score < 0.3:
                     logger.info(
-                        "    [Planner] 命中高相似度经验(score: %.2f), 直接返回 memo_output。",
+                        "    [Planner] 命中高相似度经验(score: %.2f)，直接返回 memo_output。",
                         score,
                     )
                     return {
@@ -242,14 +244,16 @@ class PlannerNode:
                 )
             elif current_func == "b":
                 strategy_parts.append(
-                    "如果历史经验与当前写作任务高度相关，可以复用其结构或结论，再结合 `academic_write` 完成撰写。"
+                    "若历史经验与当前写作任务高度相关，可复用其结构或结论，再结合 `academic_write` 完成撰写。"
                 )
             elif current_func == "c":
                 strategy_parts.append(
-                    "如果历史阅读结论已经足够，可以直接使用 `generate`；否则用 `literature_read` 或 `literature_rag_search` 进一步验证。"
+                    "若历史阅读结论已经足够，可直接使用 `generate`；否则用 `literature_read` 或 `literature_rag_search` 进一步验证。"
                 )
             else:
-                strategy_parts.append("只有在确认历史经验适用于当前任务后，才可以直接使用。")
+                strategy_parts.append(
+                    "只有在确认历史经验适用于当前任务后，才可以直接使用。"
+                )
 
         if failure_warning_context != "无":
             strategy_parts.append(

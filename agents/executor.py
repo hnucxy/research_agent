@@ -57,56 +57,21 @@ class ExecutorNode:
 
         if tool_name == "memo_output":
             logger.info("    正在从语义缓存中提取结果。")
-            match = re.search(r"Result:\s*(.*)", current_step, re.DOTALL)
-            output = (
-                match.group(1).strip()
-                if match
-                else current_step.replace("【语义缓存直接输出】\n", "").strip()
-            )
+            output = self._extract_result_payload(current_step)
             container = st.session_state.get("current_stream_container")
             if container:
                 container.markdown(f"### 从历史经验中提取到高价值结论\n\n{output}")
 
         elif tool_name in self.tools:
-            tool = self.tools[tool_name]
-            logger.info("    准备调用工具: [%s]", tool_name)
-
-            prompt_template = ChatPromptTemplate.from_template(TOOL_EXTRACTION_PROMPT)
-            chain = prompt_template | self.llm
-            query_res = chain.invoke(
-                {
-                    "original_task": state.get("task_input", ""),
-                    "resource_context": resource_context,
-                    "tool_name": tool_name,
-                    "tool_desc": getattr(tool, "prompt_spec", "")
-                    or getattr(tool, "description", "工具执行"),
-                    "current_step": current_step,
-                    "context": context_str,
-                    "feedback": feedback,
-                }
+            output, tool_state_update = self._run_registered_tool(
+                state=state,
+                tool_name=tool_name,
+                current_step=current_step,
+                context_str=context_str,
+                resource_context=resource_context,
+                feedback=feedback,
             )
-            tool_input = query_res.content.strip()
-            logger.info("    解析出的工具参数: [%s]", tool_input)
-
-            try:
-                tool_result = tool.run(tool_input)
-                output = f"【{tool_name} 执行结果】\n{tool_result}"
-            except ToolExecutionTimeout as exc:
-                logger.error("工具 %s 执行超时: %s", tool_name, exc)
-                output = f"【{tool_name} 执行超时】请精简参数后重试。"
-            except (ToolExecutionError, VectorDBConnectionError) as exc:
-                logger.error("工具 %s 执行失败: %s", tool_name, exc)
-                output = f"【{tool_name} 执行失败】{str(exc)}"
-            except Exception as exc:
-                logger.exception("工具 %s 发生未知错误", tool_name)
-                output = f"【{tool_name} 系统错误】{str(exc)}"
-
-            if tool_name == "literature_rag_search":
-                prior_images = state.get("retrieved_image_paths", [])
-                rag_images = getattr(tool, "last_retrieved_images", [])
-                merged_images = unique_existing_image_paths([*prior_images, *rag_images])
-                if merged_images:
-                    state_update["retrieved_image_paths"] = merged_images
+            state_update.update(tool_state_update)
 
         elif tool_name == "generate":
             logger.info("    正在执行文本生成或推理步骤。")
@@ -117,20 +82,74 @@ class ExecutorNode:
                 resource_context=resource_context,
             )
 
+        elif tool_name == "trigger_reviewer_loop":
+            logger.info("    正在唤起 Reviewer 子图。")
+            output = self._run_reviewer_subgraph(state=state, current_step=current_step)
+
         else:
             logger.warning("    分配到了未知工具: %s", tool_name)
             output = f"【系统提示】无法执行，未注册工具 '{tool_name}'。"
 
         logger.info("    步骤输出: %s", output)
         display_step = (
-            "从历史经验中提取高价值结论"
-            if tool_name == "memo_output"
-            else current_step
+            "从历史经验中提取高价值结论" if tool_name == "memo_output" else current_step
         )
         state_update["step_history"] = [
             f"Step: {display_step}\nTool: {tool_name}\nResult: {output}"
         ]
         return state_update
+
+    def _run_registered_tool(
+        self,
+        state: AgentState,
+        tool_name: str,
+        current_step: str,
+        context_str: str,
+        resource_context: str,
+        feedback: str,
+    ) -> tuple[str, dict]:
+        tool = self.tools[tool_name]
+        logger.info("    准备调用工具: [%s]", tool_name)
+
+        prompt_template = ChatPromptTemplate.from_template(TOOL_EXTRACTION_PROMPT)
+        chain = prompt_template | self.llm
+        query_res = chain.invoke(
+            {
+                "original_task": state.get("task_input", ""),
+                "resource_context": resource_context,
+                "tool_name": tool_name,
+                "tool_desc": getattr(tool, "prompt_spec", "")
+                or getattr(tool, "description", "工具执行"),
+                "current_step": current_step,
+                "context": context_str,
+                "feedback": feedback,
+            }
+        )
+        tool_input = query_res.content.strip()
+        logger.info("    解析出的工具参数: [%s]", tool_input)
+
+        try:
+            tool_result = tool.run(tool_input)
+            output = f"【{tool_name} 执行结果】\n{tool_result}"
+        except ToolExecutionTimeout as exc:
+            logger.error("工具 %s 执行超时: %s", tool_name, exc)
+            output = f"【{tool_name} 执行超时】请精简参数后重试。"
+        except (ToolExecutionError, VectorDBConnectionError) as exc:
+            logger.error("工具 %s 执行失败: %s", tool_name, exc)
+            output = f"【{tool_name} 执行失败】{str(exc)}"
+        except Exception as exc:
+            logger.exception("工具 %s 发生未知错误", tool_name)
+            output = f"【{tool_name} 系统错误】{str(exc)}"
+
+        state_update = {}
+        if tool_name == "literature_rag_search":
+            prior_images = state.get("retrieved_image_paths", [])
+            rag_images = getattr(tool, "last_retrieved_images", [])
+            merged_images = unique_existing_image_paths([*prior_images, *rag_images])
+            if merged_images:
+                state_update["retrieved_image_paths"] = merged_images
+
+        return output, state_update
 
     def _run_generate_step(
         self,
@@ -163,7 +182,7 @@ class ExecutorNode:
                     "type": "text",
                     "text": (
                         "请结合以下文本上下文与附带图片回答任务。"
-                        "其中图片可能来自用户手动勾选，也可能来自文献 RAG 自动命中的图表。\n\n"
+                        "图片可能来自用户手动勾选，也可能来自文献 RAG 自动命中的图表。\n\n"
                         f"{prompt_text}"
                     ),
                 }
@@ -180,10 +199,11 @@ class ExecutorNode:
             try:
                 for chunk in stream_llm.stream(messages):
                     content = chunk.content if hasattr(chunk, "content") else str(chunk)
-                    if content:
-                        output += content
-                        if container:
-                            container.markdown(f"### 正在进行多模态分析...\n\n{output} ▌")
+                    if not content:
+                        continue
+                    output += content
+                    if container:
+                        container.markdown(f"### 正在进行多模态分析...\n\n{output} ▌")
                 if container:
                     container.markdown(f"### 分析完毕\n\n{output}")
             except Exception as exc:
@@ -203,12 +223,91 @@ class ExecutorNode:
                 }
             ):
                 content = chunk.content if hasattr(chunk, "content") else str(chunk)
-                if content:
-                    output += content
-                    if container:
-                        container.markdown(f"### 正在总结归纳...\n\n{output} ▌")
+                if not content:
+                    continue
+                output += content
+                if container:
+                    container.markdown(f"### 正在总结归纳...\n\n{output} ▌")
             if container:
                 container.markdown(f"### 总结归纳完毕\n\n{output}")
         except Exception as exc:
             output = f"【文本生成失败】{str(exc)}"
         return output
+
+    def _run_reviewer_subgraph(self, state: AgentState, current_step: str) -> str:
+        from graph.graph_builder import build_reviewer_graph
+
+        draft_content = self._extract_review_draft(state)
+        if not draft_content.strip():
+            return "【trigger_reviewer_loop 执行失败】未找到可供审稿的草稿内容。"
+
+        reviewer_prompt = (
+            f"{state.get('task_input', '')}\n\n"
+            f"当前自审步骤要求：{current_step}"
+        ).strip()
+        reviewer_state = {
+            "current_function": "d",
+            "user_prompt": reviewer_prompt,
+            "draft_content": draft_content,
+            "original_draft_content": draft_content,
+            "feedback": "",
+            "task_intent": "",
+            "review_mode": "",
+            "review_focus": "",
+            "diff_content": "",
+            "final_diff_content": "",
+            "retry_count": 0,
+            "max_retries": 3,
+            "status": "",
+            "chat_history": state.get("chat_history", ""),
+            "final_answer": "",
+        }
+
+        final_state = build_reviewer_graph().invoke(reviewer_state)
+        final_draft = final_state.get("draft_content", draft_content)
+        reviewer_feedback = final_state.get("feedback", "")
+        final_diff = final_state.get("final_diff_content", "")
+        status = final_state.get("status", "")
+
+        if status == "reject":
+            return (
+                "### 自审结果\n"
+                f"Reviewer 判定为 `reject`。\n\n"
+                f"**原因**：{reviewer_feedback}"
+            )
+
+        sections = [
+            "### 自审结果",
+            f"Reviewer 判定为 `{status or 'pass'}`。",
+            "#### 修订后正文",
+            final_draft,
+        ]
+        if final_diff:
+            sections.extend(
+                [
+                    "#### 增量修改视图",
+                    final_diff,
+                ]
+            )
+        if reviewer_feedback:
+            sections.extend(
+                [
+                    "#### Reviewer 意见",
+                    reviewer_feedback,
+                ]
+            )
+        return "\n\n".join(sections)
+
+    @staticmethod
+    def _extract_result_payload(raw_text: str) -> str:
+        match = re.search(r"Result:\s*(.*)", raw_text, re.DOTALL)
+        return match.group(1).strip() if match else raw_text.strip()
+
+    def _extract_review_draft(self, state: AgentState) -> str:
+        step_history = state.get("step_history", [])
+        if step_history:
+            latest_payload = self._extract_result_payload(step_history[-1])
+            latest_payload = re.sub(r"^【[^】]+】\n?", "", latest_payload).strip()
+            if latest_payload:
+                return latest_payload
+        return state.get("task_input", "")

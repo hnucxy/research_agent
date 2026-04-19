@@ -27,7 +27,13 @@ class ReviewerState(TypedDict):
     current_function: str
     user_prompt: str
     draft_content: str
+    original_draft_content: str
     feedback: str
+    task_intent: str
+    review_mode: str
+    review_focus: str
+    diff_content: str
+    final_diff_content: str
     retry_count: int
     max_retries: int
     status: str
