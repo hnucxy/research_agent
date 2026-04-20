@@ -17,7 +17,7 @@ from utils.file_utils import (
     register_file,
 )
 from utils.image_utils import extract_markdown_image_paths
-from utils.memory_governance import (
+from utils.memory_management import (
     MEMORY_COLLECTION_OPTIONS,
     delete_memory_entries,
     get_memory_audit_log_path,
@@ -263,7 +263,7 @@ def _handle_document_upload(chat_upload_dir: str):
         st.success(f"成功上传、解析并向量化 {success_count} 份文献。")
 
 
-def _build_memory_governance_actor() -> str:
+def _build_memory_management_actor() -> str:
     current_function = st.session_state.get("current_function") or "none"
     current_chat_id = st.session_state.get("current_chat_id") or "none"
     return f"function:{current_function}|chat:{current_chat_id}"
@@ -306,7 +306,7 @@ def _render_global_document_selector():
             delete_memory_entries(
                 collection_key="research",
                 entry_ids=[file_hash],
-                actor=_build_memory_governance_actor(),
+                actor=_build_memory_management_actor(),
                 action="single_delete_document_selector",
             )
             logger.info(
@@ -402,7 +402,7 @@ def _render_memory_cleanup_tab():
     option_to_id = {
         _format_memory_entry_label(collection_key, row): row["entry_id"] for row in rows
     }
-    actor = _build_memory_governance_actor()
+    actor = _build_memory_management_actor()
 
     st.write("**单条清理**")
     single_target = st.selectbox(
@@ -495,8 +495,8 @@ def _render_memory_stats_tab():
     st.caption(f"审计日志写入路径：`{get_memory_audit_log_path()}`")
 
 
-def render_memory_governance_panel():
-    with st.expander("记忆治理", expanded=False):
+def render_memory_management_panel():
+    with st.expander("记忆管理", expanded=False):
         overview_tab, cleanup_tab, stats_tab = st.tabs(
             ["可视化查看", "清理", "统计面板"]
         )

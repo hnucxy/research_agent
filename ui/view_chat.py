@@ -5,7 +5,7 @@ import streamlit as st
 from ui.chat_flows import run_chat_turn
 from ui.chat_panels import (
     render_document_management_panel,
-    render_memory_governance_panel,
+    render_memory_management_panel,
     render_search_settings,
 )
 from ui.chat_renderers import (
@@ -45,7 +45,7 @@ def render_chat_page():
                 selected_image_for_chat,
             ) = render_document_management_panel(chat_upload_dir)
 
-        render_memory_governance_panel()
+        render_memory_management_panel()
 
     if side_col is not None:
         with side_col:

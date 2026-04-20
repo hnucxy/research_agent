@@ -4,7 +4,7 @@ import streamlit as st
 
 from ui.chat_panels import (
     render_document_management_panel,
-    render_memory_governance_panel,
+    render_memory_management_panel,
 )
 from ui.config import UPLOAD_DIR
 from ui.session import init_new_chat
@@ -65,4 +65,4 @@ def render_home_page():
 
     home_upload_dir = os.path.join(UPLOAD_DIR, "_home")
     render_document_management_panel(home_upload_dir)
-    render_memory_governance_panel()
+    render_memory_management_panel()
