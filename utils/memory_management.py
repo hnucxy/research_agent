@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from config.logger import get_logger
 from config.settings import Settings
 from ui.config import MEMORY_AUDIT_LOG_FILE
-from utils.file_utils import unregister_file
+from utils.file_utils import get_file_path_from_hash, unregister_file
 
 logger = get_logger()
 
@@ -246,6 +246,12 @@ def delete_memory_entries(
                 chunk_ids = snapshot.get("ids", []) or []
                 metadatas = snapshot.get("metadatas", []) or []
                 if not chunk_ids:
+                    registered_path = get_file_path_from_hash(file_hash)
+                    if registered_path:
+                        deleted_entries += 1
+                        deleted_hashes.append(file_hash)
+                        deleted_file_paths.append(registered_path)
+                        unregister_file(file_hash)
                     continue
 
                 deleted_vectors += len(chunk_ids)

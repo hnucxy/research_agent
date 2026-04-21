@@ -25,6 +25,12 @@ from utils.memory_management import (
     get_memory_stats,
     list_memory_entries,
 )
+from utils.vectorization_tasks import (
+    get_vectorization_task,
+    is_vectorization_active,
+    list_vectorization_tasks,
+    start_vectorization_task,
+)
 
 logger = get_logger()
 GLOBAL_UPLOAD_DIR = os.path.join(UPLOAD_DIR, "_global")
@@ -105,6 +111,29 @@ def _mark_file_for_current_chat(file_hash: str) -> None:
     current_hashes = set(chat_file_hashes.get(active_chat_id, []))
     current_hashes.add(file_hash)
     chat_file_hashes[active_chat_id] = sorted(current_hashes)
+
+
+def _show_vectorization_notifications() -> None:
+    notified_keys = st.session_state.setdefault("vectorization_notified_keys", [])
+    notified_set = set(notified_keys)
+    for task in list_vectorization_tasks():
+        if not task or task.get("status") not in {"completed", "failed"}:
+            continue
+        notice_key = (
+            f"{task.get('file_hash')}:{task.get('status')}:{task.get('finished_at')}"
+        )
+        if notice_key in notified_set:
+            continue
+
+        file_name = task.get("file_name") or "文献"
+        toast = getattr(st, "toast", None)
+        if task.get("status") == "completed":
+            message = f"`{file_name}` 向量化完成，现可勾选使用。"
+            toast(message) if callable(toast) else st.success(message)
+        else:
+            message = f"`{file_name}` 向量化失败，请删除后重新上传。"
+            toast(message) if callable(toast) else st.warning(message)
+        notified_keys.append(notice_key)
 
 
 def render_search_settings(search_source: str, semantic_sort_by: str) -> tuple[str, str]:
@@ -325,9 +354,9 @@ def _handle_document_upload(chat_upload_dir: str):
                         )
 
             if docs_to_insert:
-                progress_bar.progress(70, text=f"正在向量化 `{uploaded_file.name}`")
-                stage_notice.warning(
-                    f"已完成解析，正在向量化 `{uploaded_file.name}`。这一步可能耗时较长，界面短暂空转属于正常现象。"
+                progress_bar.progress(70, text=f"已提交 `{uploaded_file.name}` 后台向量化")
+                stage_notice.info(
+                    f"`{uploaded_file.name}` 已加入后台向量化队列，可继续使用当前页面。"
                 )
                 logger.info(
                     "开始向量化文献 | file_name=%s | file_hash=%s",
@@ -335,7 +364,15 @@ def _handle_document_upload(chat_upload_dir: str):
                     file_hash,
                 )
                 try:
-                    vectorstore.add_texts(texts=docs_to_insert, metadatas=metadatas)
+                    register_file(file_hash, library_file_path)
+                    _mark_file_for_current_chat(file_hash)
+                    if not is_vectorization_active(file_hash):
+                        start_vectorization_task(
+                            file_hash=file_hash,
+                            file_name=uploaded_file.name,
+                            texts=docs_to_insert,
+                            metadatas=metadatas,
+                        )
                 except Exception as exc:
                     logger.exception(
                         "文献向量化失败 | file_name=%s | file_hash=%s",
@@ -345,7 +382,7 @@ def _handle_document_upload(chat_upload_dir: str):
                     st.error(f"向量化失败: {str(exc)}")
                     continue
                 logger.info(
-                    "完成向量化文献 | file_name=%s | file_hash=%s",
+                    "已提交后台向量化文献 | file_name=%s | file_hash=%s",
                     uploaded_file.name,
                     file_hash,
                 )
@@ -374,6 +411,7 @@ def _build_memory_management_actor() -> str:
 
 
 def _render_global_document_selector():
+    _show_vectorization_notifications()
     global_files = get_all_registered_files()
     selected_files_for_agent = []
     active_chat_id = st.session_state.get("current_chat_id") or ""
@@ -395,6 +433,10 @@ def _render_global_document_selector():
     for file_path, file_meta in unique_md_files.items():
         file_name = file_meta["file_name"]
         file_hash = file_meta["file_hash"]
+        vector_task = get_vectorization_task(file_hash)
+        vector_status = (vector_task or {}).get("status", "")
+        is_processing = vector_status in {"queued", "running"}
+        is_failed = vector_status == "failed"
         col1, col2 = st.columns([4, 1])
         checkbox_key = f"cb_global_{file_path}"
         if checkbox_key not in st.session_state:
@@ -404,14 +446,37 @@ def _render_global_document_selector():
                 or (active_chat_id and active_chat_id in file_path)
             )
 
-        is_checked = col1.checkbox(
-            f"`{file_name}`", value=st.session_state[checkbox_key], key=checkbox_key
-        )
+        if is_processing:
+            status_label = "排队中" if vector_status == "queued" else "向量化中"
+            is_checked = col1.checkbox(
+                f"`{file_name}`（{status_label}，暂不可选）",
+                value=False,
+                key=f"cb_processing_{file_hash}",
+                disabled=True,
+            )
+        elif is_failed:
+            is_checked = col1.checkbox(
+                f"`{file_name}`（向量化失败，请删除后重新上传）",
+                value=False,
+                key=f"cb_failed_{file_hash}",
+                disabled=True,
+            )
+        else:
+            is_checked = col1.checkbox(
+                f"`{file_name}`",
+                value=st.session_state[checkbox_key],
+                key=checkbox_key,
+            )
         if is_checked:
             selected_files_for_agent.append({"name": file_name, "path": file_path})
 
         delete_key = f"del_global_{file_path}"
-        if col2.button("删除", key=delete_key, help="删除此物理文献"):
+        if col2.button(
+            "删除",
+            key=delete_key,
+            help="处理中时不可删除" if is_processing else "删除此物理文献",
+            disabled=is_processing,
+        ):
             delete_memory_entries(
                 collection_key="research",
                 entry_ids=[file_hash],
