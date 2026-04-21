@@ -7,6 +7,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from config.logger import get_logger
 from config.settings import Settings
+from ui.config import UPLOAD_DIR
 from utils.document_parser import parse_pdf_to_markdown
 from utils.exceptions import DocumentParseError
 from utils.file_utils import (
@@ -26,6 +27,84 @@ from utils.memory_management import (
 )
 
 logger = get_logger()
+GLOBAL_UPLOAD_DIR = os.path.join(UPLOAD_DIR, "_global")
+
+
+def _get_library_file_path(file_hash: str, file_name: str) -> str:
+    base_name = os.path.splitext(file_name)[0]
+    return os.path.join(GLOBAL_UPLOAD_DIR, file_hash, f"{base_name}.md")
+
+
+def _get_vector_snapshot(vectorstore: Chroma, file_hash: str) -> dict:
+    try:
+        return vectorstore._collection.get(
+            where={"file_hash": file_hash},
+            include=["documents", "metadatas"],
+        )
+    except Exception as exc:
+        logger.warning("检查文献向量记录失败 | file_hash=%s | error=%s", file_hash, exc)
+        return {}
+
+
+def _has_vector_record(snapshot: dict) -> bool:
+    return bool(snapshot and snapshot.get("ids"))
+
+
+def _rebuild_markdown_from_vectors(snapshot: dict) -> str:
+    documents = snapshot.get("documents", []) or []
+    metadatas = snapshot.get("metadatas", []) or []
+    text_chunks = []
+    for index, document in enumerate(documents):
+        metadata = metadatas[index] if index < len(metadatas) else {}
+        if (metadata or {}).get("type") == "image":
+            continue
+        if document and not str(document).startswith("image://"):
+            text_chunks.append(str(document).strip())
+    return "\n\n".join(chunk for chunk in text_chunks if chunk)
+
+
+def _copy_markdown_bundle_to_library(source_path: str, target_path: str) -> str:
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+    source_dir = os.path.dirname(os.path.abspath(source_path))
+    target_dir = os.path.dirname(os.path.abspath(target_path))
+    source_image_dir = os.path.join(source_dir, "images")
+    target_image_dir = os.path.join(target_dir, "images")
+    if os.path.isdir(source_image_dir) and source_image_dir != target_image_dir:
+        shutil.copytree(source_image_dir, target_image_dir, dirs_exist_ok=True)
+
+    with open(source_path, "r", encoding="utf-8") as file:
+        text_content = file.read()
+
+    source_rel = os.path.relpath(source_dir, os.getcwd()).replace("\\", "/")
+    target_rel = os.path.relpath(target_dir, os.getcwd()).replace("\\", "/")
+    source_abs = source_dir.replace("\\", "/")
+    target_abs = target_dir.replace("\\", "/")
+    text_content = text_content.replace(
+        f"{source_rel}/images/", f"{target_rel}/images/"
+    )
+    text_content = text_content.replace(
+        f"{source_abs}/images/",
+        f"{target_abs}/images/",
+    )
+    with open(target_path, "w", encoding="utf-8") as file:
+        file.write(text_content)
+    return text_content
+
+
+def _write_text_file(file_path: str, text_content: str) -> None:
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, "w", encoding="utf-8") as file:
+        file.write(text_content)
+
+
+def _mark_file_for_current_chat(file_hash: str) -> None:
+    active_chat_id = st.session_state.get("current_chat_id")
+    if not active_chat_id:
+        return
+    chat_file_hashes = st.session_state.setdefault("chat_file_hashes", {})
+    current_hashes = set(chat_file_hashes.get(active_chat_id, []))
+    current_hashes.add(file_hash)
+    chat_file_hashes[active_chat_id] = sorted(current_hashes)
 
 
 def render_search_settings(search_source: str, semantic_sort_by: str) -> tuple[str, str]:
@@ -80,6 +159,7 @@ def _handle_document_upload(chat_upload_dir: str):
     if not uploaded_files:
         return
 
+    # 为当前聊天面板中的所有上传文件准备共享资源。
     os.makedirs(chat_upload_dir, exist_ok=True)
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     embeddings = Settings.get_embeddings()
@@ -99,6 +179,7 @@ def _handle_document_upload(chat_upload_dir: str):
         file_ext = uploaded_file.name.split(".")[-1].lower()
         base_name = os.path.splitext(uploaded_file.name)[0]
         file_path = os.path.join(chat_upload_dir, f"{base_name}.md")
+        library_file_path = _get_library_file_path(file_hash, uploaded_file.name)
 
         try:
             logger.info(
@@ -107,21 +188,41 @@ def _handle_document_upload(chat_upload_dir: str):
                 file_hash,
             )
 
-            if is_file_duplicate(file_hash):
+            vector_snapshot = _get_vector_snapshot(vectorstore, file_hash)
+            old_path = (
+                get_file_path_from_hash(file_hash)
+                if is_file_duplicate(file_hash)
+                else None
+            )
+            can_reuse_duplicate = bool(
+                (old_path and os.path.exists(old_path))
+                or _has_vector_record(vector_snapshot)
+            )
+            if can_reuse_duplicate:
+                # 复用已解析的Markdown同时确认向量记录是否已经存在
                 logger.info(
                     "检测到重复文献，跳过重复解析 | file_name=%s | file_hash=%s",
                     uploaded_file.name,
                     file_hash,
                 )
                 st.warning(f"文件 `{uploaded_file.name}` 已存在于全局库中，跳过重复解析。")
-                old_path = get_file_path_from_hash(file_hash)
-                if not old_path or not os.path.exists(old_path):
-                    logger.warning(
-                        "重复文献缺少已注册文件，无法继续处理 | file_name=%s | file_hash=%s",
-                        uploaded_file.name,
-                        file_hash,
+                if old_path and os.path.exists(old_path):
+                    text_content = _copy_markdown_bundle_to_library(
+                        old_path, library_file_path
                     )
-                    continue
+                    register_file(file_hash, library_file_path)
+                elif _has_vector_record(vector_snapshot):
+                    text_content = _rebuild_markdown_from_vectors(vector_snapshot)
+                    if text_content:
+                        _write_text_file(library_file_path, text_content)
+                        register_file(file_hash, library_file_path)
+                    else:
+                        logger.warning(
+                            "重复文献只有向量记录但无法还原文本 | file_name=%s | file_hash=%s",
+                            uploaded_file.name,
+                            file_hash,
+                        )
+                        continue
 
                 progress_bar.progress(
                     20, text=f"检测到重复文献，正在复用 `{uploaded_file.name}` 的解析结果"
@@ -129,33 +230,31 @@ def _handle_document_upload(chat_upload_dir: str):
                 stage_notice.warning(
                     f"正在复用 `{uploaded_file.name}` 的解析结果，并检查是否需要补做向量化，请勿刷新页面。"
                 )
-                old_path_abs = os.path.abspath(old_path)
-                file_path_abs = os.path.abspath(file_path)
-                if old_path_abs != file_path_abs:
-                    shutil.copy2(old_path, file_path)
-                with open(old_path, "r", encoding="utf-8") as file:
+                with open(library_file_path, "r", encoding="utf-8") as file:
                     text_content = file.read()
+                _write_text_file(file_path, text_content)
 
-                existing = vectorstore._collection.get(
-                    where={"file_hash": file_hash}, limit=1
-                )
-                if existing and existing.get("ids"):
+                if _has_vector_record(vector_snapshot):
                     logger.info(
                         "检测到文献已存在向量记录，跳过向量化 | file_name=%s | file_hash=%s",
                         uploaded_file.name,
                         file_hash,
                     )
+                    progress_bar.progress(100, text=f"`{uploaded_file.name}` 处理完成")
+                    _mark_file_for_current_chat(file_hash)
+                    success_count += 1
                     continue
             elif file_ext == "pdf":
                 progress_bar.progress(15, text=f"正在解析 `{uploaded_file.name}` 并提取图片")
                 stage_notice.warning(
                     f"正在解析 `{uploaded_file.name}` 并提取图片，请勿刷新或切换页面。"
                 )
+                os.makedirs(os.path.dirname(library_file_path), exist_ok=True)
                 with st.spinner(f"正在解析 `{uploaded_file.name}` 并提取图片..."):
                     try:
                         text_content = parse_pdf_to_markdown(
                             pdf_bytes=file_bytes,
-                            output_dir=chat_upload_dir,
+                            output_dir=os.path.dirname(library_file_path),
                             base_name=base_name,
                             file_name=uploaded_file.name,
                             file_hash=file_hash,
@@ -187,9 +286,10 @@ def _handle_document_upload(chat_upload_dir: str):
                 text_content = file_bytes.decode("utf-8", errors="ignore")
 
             progress_bar.progress(45, text=f"正在整理 `{uploaded_file.name}` 的文本内容")
-            with open(file_path, "w", encoding="utf-8") as file:
-                file.write(text_content)
+            _write_text_file(library_file_path, text_content)
+            _write_text_file(file_path, text_content)
 
+            # PDF和Markdown都走同一套切分与入库流程
             chunks = text_splitter.split_text(text_content)
             docs_to_insert = []
             metadatas = []
@@ -200,12 +300,15 @@ def _handle_document_upload(chat_upload_dir: str):
                     {
                         "chat_id": active_chat_id,
                         "file_name": uploaded_file.name,
-                        "file_path": os.path.abspath(file_path),
+                        "file_path": os.path.abspath(library_file_path),
                         "file_hash": file_hash,
                         "type": "text",
                     }
                 )
-                img_paths = extract_markdown_image_paths(chunk, document_path=file_path)
+                # 将图片引用和原文片段一起入库便于后续多模态检索
+                img_paths = extract_markdown_image_paths(
+                    chunk, document_path=library_file_path
+                )
                 for img_path in img_paths:
                     if os.path.exists(img_path):
                         docs_to_insert.append(f"image://{img_path}")
@@ -213,7 +316,7 @@ def _handle_document_upload(chat_upload_dir: str):
                             {
                                 "chat_id": active_chat_id,
                                 "file_name": uploaded_file.name,
-                                "file_path": os.path.abspath(file_path),
+                                "file_path": os.path.abspath(library_file_path),
                                 "file_hash": file_hash,
                                 "type": "image",
                                 "image_path": img_path,
@@ -247,7 +350,8 @@ def _handle_document_upload(chat_upload_dir: str):
                     file_hash,
                 )
 
-            register_file(file_hash, file_path)
+            register_file(file_hash, library_file_path)
+            _mark_file_for_current_chat(file_hash)
             logger.info(
                 "完成上传文献处理 | file_name=%s | file_hash=%s",
                 uploaded_file.name,
@@ -260,7 +364,7 @@ def _handle_document_upload(chat_upload_dir: str):
             stage_notice.empty()
 
     if success_count > 0:
-        st.success(f"成功上传、解析并向量化 {success_count} 份文献。")
+        st.success(f"成功处理 {success_count} 份文献。")
 
 
 def _build_memory_management_actor() -> str:
@@ -285,14 +389,19 @@ def _render_global_document_selector():
         return selected_files_for_agent, None
 
     st.write("**全局文献库**")
+    current_chat_hashes = set(
+        st.session_state.get("chat_file_hashes", {}).get(active_chat_id, [])
+    )
     for file_path, file_meta in unique_md_files.items():
         file_name = file_meta["file_name"]
         file_hash = file_meta["file_hash"]
         col1, col2 = st.columns([4, 1])
         checkbox_key = f"cb_global_{file_path}"
         if checkbox_key not in st.session_state:
+            # 新会话默认勾选路径中包含当前chat_id的已上传文件
             st.session_state[checkbox_key] = bool(
-                active_chat_id and active_chat_id in file_path
+                file_hash in current_chat_hashes
+                or (active_chat_id and active_chat_id in file_path)
             )
 
         is_checked = col1.checkbox(
@@ -318,6 +427,7 @@ def _render_global_document_selector():
 
     selected_image_for_chat = None
     if selected_files_for_agent:
+        # 只把已选Markdown文档中的图片暴露给聊天提问使用
         all_images = []
         for file_meta in selected_files_for_agent:
             try:
@@ -398,6 +508,7 @@ def _render_memory_cleanup_tab():
         return
 
     st.dataframe(rows, width="stretch", hide_index=True)
+    # UI 标签可能较长，这里保留到稳定entry_id的直接映射
     option_labels = [_format_memory_entry_label(collection_key, row) for row in rows]
     option_to_id = {
         _format_memory_entry_label(collection_key, row): row["entry_id"] for row in rows

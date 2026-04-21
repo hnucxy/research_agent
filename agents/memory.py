@@ -59,7 +59,15 @@ class MemoryNode:
                 if is_duplicate:
                     logger.info("    [Memory] 经验库中已存在高度相似的记录，跳过重复写入避免冗余。")
                 else:
-                    vectorstore.add_texts(texts=[experience_text])
+                    vectorstore.add_texts(
+                        texts=[experience_text],
+                        metadatas=[
+                            {
+                                "chat_id": state.get("current_chat_id", ""),
+                                "current_function": state.get("current_function", ""),
+                            }
+                        ],
+                    )
                     logger.info("    [Memory] 成功写入全局经验库！")
                 
             except Exception as e:

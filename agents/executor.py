@@ -63,6 +63,7 @@ class ExecutorNode:
                 container.markdown(f"### 从历史经验中提取到高价值结论\n\n{output}")
 
         elif tool_name in self.tools:
+            # 将评估反馈注入下一轮工具调用
             output, tool_state_update = self._run_registered_tool(
                 state=state,
                 tool_name=tool_name,
@@ -126,7 +127,7 @@ class ExecutorNode:
             }
         )
         tool_input = query_res.content.strip()
-        logger.info("    解析出的工具参数: [%s]", tool_input)
+        logger.info("    大语言模型解析出的工具参数: [%s]", tool_input)
 
         try:
             tool_result = tool.run(tool_input)
@@ -164,6 +165,7 @@ class ExecutorNode:
 
         selected_image_path = state.get("selected_image_path")
         retrieved_image_paths = state.get("retrieved_image_paths", [])
+        # 合并用户勾选和RAG命中的图片上下文
         multimodal_images = unique_existing_image_paths(
             [selected_image_path, *retrieved_image_paths]
         )
@@ -241,6 +243,7 @@ class ExecutorNode:
         if not draft_content.strip():
             return "【trigger_reviewer_loop 执行失败】未找到可供审稿的草稿内容。"
 
+        # 复用审稿子图处理生成后的自审环节
         reviewer_prompt = (
             f"{state.get('task_input', '')}\n\n"
             f"当前自审步骤要求：{current_step}"

@@ -83,6 +83,7 @@ class PlannerNode:
             failure_warning_context=failure_warning_context,
         )
 
+        # 按功能模式约束可选工具集合
         if current_func in ["a", "b"]:
             parser = JsonOutputParser(pydantic_object=NonReadExecutionPlan)
             mode_prompt_addon = (
@@ -117,6 +118,7 @@ class PlannerNode:
 
         eval_res = state.get("evaluation_result", {})
         replan_count = state.get("replan_count", 0)
+        # 将失败反馈转成重新规划上下文
         if eval_res and not eval_res.get("passed", True):
             last_plan = state.get("plan", [])
             feedback = eval_res.get("feedback", "无反馈")
@@ -175,6 +177,7 @@ class PlannerNode:
             return historical_experience
 
         try:
+            # 首轮规划优先查询成功经验库
             vectorstore = Chroma(
                 collection_name=Settings.get_collection_name("global_experience"),
                 embedding_function=self.embeddings,

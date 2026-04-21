@@ -29,6 +29,7 @@ class InputParserNode:
         logger.info("--- [Input Parser] Node ---")
 
         if state.get("draft_content"):
+            # 已有原稿时只补充任务意图元信息
             intent_meta = classify_review_intent(state.get("user_prompt", ""))
             original_draft = state.get("original_draft_content") or state["draft_content"]
             return {
@@ -219,6 +220,7 @@ class AuthorNode:
 
         previous_draft = state.get("draft_content", "")
         original_draft = state.get("original_draft_content") or previous_draft
+        # 同时生成单轮差异和累计差异
         incremental_diff = build_diff_markup(previous_draft, output)
         cumulative_diff = build_diff_markup(original_draft, output)
 

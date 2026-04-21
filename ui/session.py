@@ -3,11 +3,14 @@ import os
 import shutil
 from datetime import datetime
 
-import chromadb
 import streamlit as st
 
+from config.logger import get_logger
 from config.settings import Settings
 from ui.config import HISTORY_DIR, UPLOAD_DIR
+from utils.memory_management import delete_chat_memories
+
+logger = get_logger()
 
 
 def get_chat_files():
@@ -36,21 +39,28 @@ def save_chat(chat_id, messages):
         json.dump(messages, f, ensure_ascii=False, indent=2)
 
 
+def _safe_remove_chat_upload_dir(chat_id):
+    if not chat_id or chat_id == "_global":
+        return
+    upload_root = os.path.abspath(UPLOAD_DIR)
+    chat_upload_dir = os.path.abspath(os.path.join(UPLOAD_DIR, chat_id))
+    if os.path.commonpath([upload_root, chat_upload_dir]) != upload_root:
+        return
+    if os.path.isdir(chat_upload_dir):
+        shutil.rmtree(chat_upload_dir)
+
+
 def delete_chat(chat_id):
-    """删除指定对话及其上传文献。"""
+    """删除指定对话及其会话上传目录，不删除全局向量库内容。"""
     filepath = os.path.join(HISTORY_DIR, f"{chat_id}.json")
     if os.path.exists(filepath):
         os.remove(filepath)
 
-    chat_upload_dir = os.path.join(UPLOAD_DIR, chat_id)
-    if os.path.exists(chat_upload_dir):
-        shutil.rmtree(chat_upload_dir)
-
     try:
-        client = chromadb.PersistentClient(path="./chroma_db")
-        client.delete_collection(name=chat_id)
-    except Exception:
-        pass
+        delete_chat_memories(chat_id, actor=f"delete_chat:{chat_id}")
+    except Exception as exc:
+        logger.warning("删除会话记忆失败 | chat_id=%s | error=%s", chat_id, exc)
+    _safe_remove_chat_upload_dir(chat_id)
 
 
 def init_new_chat(func_code):

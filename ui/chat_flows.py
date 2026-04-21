@@ -132,6 +132,7 @@ def handle_general_flow(
 
     initial_state = {
         "current_function": st.session_state.current_function,
+        "current_chat_id": st.session_state.get("current_chat_id", ""),
         "task_input": prompt,
         "resource_context": resource_context,
         "selected_image_path": selected_image_for_chat or "",

@@ -4,7 +4,6 @@ import streamlit as st
 from langchain_core.prompts import ChatPromptTemplate
 from tools.base import BaseTool
 from config.settings import Settings
-# 引入集中管理的 Prompt
 from prompts.executor_prompts import ACADEMIC_WRITER_PROMPT
 
 

@@ -82,6 +82,7 @@ class EvaluatorNode:
 
         current_retry = state.get("retry_count", 0) + 1
         if not is_passed:
+            # 失败结果写入失败经验库
             self._store_failure_memory(
                 state=state,
                 current_step=current_step,
@@ -112,6 +113,8 @@ class EvaluatorNode:
             feedback=evaluation.get("feedback", ""),
             retry_count=retry_count,
             evaluator_action=evaluation.get("action", "retry_step"),
+            chat_id=state.get("current_chat_id", ""),
+            current_function=state.get("current_function", ""),
         )
         if not record:
             return

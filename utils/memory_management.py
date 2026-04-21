@@ -297,3 +297,57 @@ def delete_memory_entries(
             error=str(exc),
         )
         raise
+
+
+def delete_chat_memories(chat_id: str, actor: str) -> Dict[str, Any]:
+    if not chat_id:
+        return {"deleted_entries": 0, "deleted_vectors": 0, "entry_ids": []}
+
+    total_entries = 0
+    total_vectors = 0
+    all_entry_ids: List[str] = []
+
+    for collection_key in ("experience", "failure"):
+        collection = _get_collection(collection_key)
+        if collection is None:
+            continue
+
+        try:
+            snapshot = collection.get(
+                where={"chat_id": chat_id},
+                include=["metadatas"],
+            )
+            existing_ids = snapshot.get("ids", []) or []
+            if existing_ids:
+                collection.delete(ids=existing_ids)
+
+            deleted_count = len(existing_ids)
+            total_entries += deleted_count
+            total_vectors += deleted_count
+            all_entry_ids.extend(existing_ids)
+            append_memory_audit_log(
+                action="delete_chat_memories",
+                collection_key=collection_key,
+                entry_ids=existing_ids,
+                deleted_entries=deleted_count,
+                deleted_vectors=deleted_count,
+                actor=actor,
+            )
+        except Exception as exc:
+            append_memory_audit_log(
+                action="delete_chat_memories",
+                collection_key=collection_key,
+                entry_ids=[],
+                deleted_entries=0,
+                deleted_vectors=0,
+                actor=actor,
+                status="failed",
+                error=str(exc),
+            )
+            raise
+
+    return {
+        "deleted_entries": total_entries,
+        "deleted_vectors": total_vectors,
+        "entry_ids": all_entry_ids,
+    }

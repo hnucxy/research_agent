@@ -90,6 +90,8 @@ def build_failure_record(
     feedback: str,
     retry_count: int,
     evaluator_action: str,
+    chat_id: str = "",
+    current_function: str = "",
 ) -> Optional[Dict[str, str]]:
     failure_type = classify_failure_type(step_result, feedback)
     if not should_record_failure(failure_type, retry_count, evaluator_action):
@@ -106,6 +108,8 @@ def build_failure_record(
         "retry_count": str(retry_count),
         "evaluator_action": evaluator_action or "",
         "avoidance_advice": advice,
+        "chat_id": chat_id or "",
+        "current_function": current_function or "",
     }
     return record
 
@@ -146,6 +150,8 @@ def store_failure_record(record: Dict[str, str], embeddings) -> None:
             {
                 "tool_name": record.get("tool_name", ""),
                 "failure_type": record.get("failure_type", ""),
+                "chat_id": record.get("chat_id", ""),
+                "current_function": record.get("current_function", ""),
             }
         ],
     )
