@@ -1,4 +1,5 @@
 import os
+from datetime import date
 from typing import List, Optional
 
 
@@ -12,7 +13,13 @@ def build_resource_context(
     blocks = []
 
     if search_source:
-        search_lines = [f"- search_source: {search_source}"]
+        today = date.today()
+        search_lines = [
+            f"- current_date: {today.isoformat()}",
+            f"- current_year: {today.year}",
+            f"- search_source: {search_source}",
+            "- 时间理解: 用户说“近三年”时按当前年份向前换算为连续年份范围；“近几年”未说明数量时按近三年处理。",
+        ]
         if search_source == "semantic_scholar":
             search_lines.append(
                 f"- semantic_sort_by: {semantic_sort_by or 'relevance'}"

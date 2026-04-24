@@ -1,3 +1,4 @@
+import json
 import re
 
 import streamlit as st
@@ -127,6 +128,7 @@ class ExecutorNode:
             }
         )
         tool_input = query_res.content.strip()
+        tool_input = self._apply_tool_runtime_defaults(tool_input, tool_name, state)
         logger.info("    大语言模型解析出的工具参数: [%s]", tool_input)
 
         try:
@@ -151,6 +153,29 @@ class ExecutorNode:
                 state_update["retrieved_image_paths"] = merged_images
 
         return output, state_update
+
+    def _apply_tool_runtime_defaults(
+        self, tool_input: str, tool_name: str, state: AgentState
+    ) -> str:
+        if tool_name != "semantic_scholar_search":
+            return tool_input
+
+        clean_input = tool_input.strip()
+        clean_input = re.sub(r"^```[a-zA-Z]*\n", "", clean_input)
+        clean_input = re.sub(r"\n```$", "", clean_input)
+        try:
+            args = json.loads(clean_input)
+        except json.JSONDecodeError:
+            return tool_input
+
+        if "sort_by" not in args and state.get("semantic_sort_by"):
+            args["sort_by"] = state.get("semantic_sort_by")
+
+        has_model_year = bool(args.get("year") or args.get("year_filter"))
+        if not has_model_year and state.get("semantic_year_filter"):
+            args["year"] = state.get("semantic_year_filter")
+
+        return json.dumps(args, ensure_ascii=False)
 
     def _run_generate_step(
         self,

@@ -21,8 +21,10 @@ class SemanticScholarSearchTool(BaseTool):
         '"sort_by":"relevance|citation_count|most_influential|recency",'
         '"year":"2020-2024"}。'
         " Use concise English keywords. Default max_results=5. "
-        "If the frontend selected a Semantic Scholar sort order or year filter, "
-        "strictly follow it. The year filter supports YYYY, YYYY-YYYY, YYYY-, or -YYYY."
+        "First extract time requirements from the user's request, such as 2025 or "
+        "recent three years, and convert them to the `year` parameter. "
+        "If the user did not specify time, fall back to the frontend Semantic Scholar "
+        "year filter when provided. The year filter supports YYYY, YYYY-YYYY, YYYY-, or -YYYY."
     )
 
     SORT_MAPPING = {

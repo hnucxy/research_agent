@@ -95,6 +95,11 @@ class PlannerNode:
             mode_prompt_addon = ""
 
         if current_func == "a":
+            mode_prompt_addon += (
+                "\n[时间约束] 规划外部论文检索时，必须保留用户口语化时间限制；"
+                "例如“近三年”“2025年”“近几年”要写进检索步骤描述，"
+                "便于执行器换算为工具年份参数。"
+            )
             if search_source == "semantic_scholar":
                 mode_prompt_addon += (
                     "\n[检索源约束] 前端已选择 Semantic Scholar。"
