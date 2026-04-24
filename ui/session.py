@@ -87,6 +87,9 @@ def init_session_state():
     if "semantic_sort_by" not in st.session_state:
         st.session_state.semantic_sort_by = "relevance"
 
+    if "semantic_year_filter" not in st.session_state:
+        st.session_state.semantic_year_filter = ""
+
     if "token_usage" not in st.session_state:
         model_name = getattr(Settings, "MODEL_NAME", None) or "未知模型"
         st.session_state.token_usage = {

@@ -118,6 +118,7 @@ def handle_general_flow(
     selected_image_for_chat,
     search_source: str,
     semantic_sort_by: str,
+    semantic_year_filter: str,
     run_config: dict,
     process_logs: list[str],
 ):
@@ -126,6 +127,9 @@ def handle_general_flow(
         selected_image_path=selected_image_for_chat,
         search_source=search_source if st.session_state.current_function == "a" else None,
         semantic_sort_by=semantic_sort_by
+        if st.session_state.current_function == "a"
+        else None,
+        semantic_year_filter=semantic_year_filter
         if st.session_state.current_function == "a"
         else None,
     )
@@ -140,6 +144,7 @@ def handle_general_flow(
         "chat_history": chat_history_str,
         "search_source": search_source,
         "semantic_sort_by": semantic_sort_by,
+        "semantic_year_filter": semantic_year_filter,
         "plan": [],
         "planned_tools": [],
         "current_step_index": 0,
@@ -208,6 +213,7 @@ def run_chat_turn(
     selected_image_for_chat,
     search_source: str,
     semantic_sort_by: str,
+    semantic_year_filter: str,
     token_usage: dict,
     messages,
 ):
@@ -235,6 +241,7 @@ def run_chat_turn(
             selected_image_for_chat=selected_image_for_chat,
             search_source=search_source,
             semantic_sort_by=semantic_sort_by,
+            semantic_year_filter=semantic_year_filter,
             run_config=run_config,
             process_logs=process_logs,
         )

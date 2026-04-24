@@ -26,6 +26,7 @@ def render_chat_page():
     selected_image_for_chat = None
     search_source = st.session_state.get("search_source", "arxiv")
     semantic_sort_by = st.session_state.get("semantic_sort_by", "relevance")
+    semantic_year_filter = st.session_state.get("semantic_year_filter", "")
 
     if use_side_panel:
         chat_col, side_col = st.columns([3, 1], gap="large")
@@ -49,8 +50,8 @@ def render_chat_page():
 
     if side_col is not None:
         with side_col:
-            search_source, semantic_sort_by = render_search_settings(
-                search_source, semantic_sort_by
+            search_source, semantic_sort_by, semantic_year_filter = render_search_settings(
+                search_source, semantic_sort_by, semantic_year_filter
             )
 
     placeholder_text = "请输入你的科研需求..."
@@ -78,6 +79,7 @@ def render_chat_page():
                         selected_image_for_chat=selected_image_for_chat,
                         search_source=search_source,
                         semantic_sort_by=semantic_sort_by,
+                        semantic_year_filter=semantic_year_filter,
                         token_usage=st.session_state.token_usage,
                         messages=st.session_state.messages,
                     )

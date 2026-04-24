@@ -17,9 +17,12 @@ class SemanticScholarSearchTool(BaseTool):
         "用于搜索 Semantic Scholar 论文，返回标题、作者、年份、摘要、总引用量、重要引用量和链接。"
     )
     prompt_spec = (
-        '输出 JSON: {"query":"英文检索词","max_results":5,"sort_by":"relevance|citation_count|most_influential|recency"}。'
-        " 使用简洁的英文关键词，默认 max_results=5。"
-        " 当前前端若选择了 Semantic Scholar 排序方式，必须严格遵守。"
+        'Output JSON: {"query":"English search terms","max_results":5,'
+        '"sort_by":"relevance|citation_count|most_influential|recency",'
+        '"year":"2020-2024"}。'
+        " Use concise English keywords. Default max_results=5. "
+        "If the frontend selected a Semantic Scholar sort order or year filter, "
+        "strictly follow it. The year filter supports YYYY, YYYY-YYYY, YYYY-, or -YYYY."
     )
 
     SORT_MAPPING = {
@@ -44,6 +47,7 @@ class SemanticScholarSearchTool(BaseTool):
         query = (args.get("query") or "").strip()
         max_results = args.get("max_results", 5)
         sort_by = (args.get("sort_by") or "relevance").strip()
+        year_filter = self._normalize_year_filter(args.get("year") or args.get("year_filter"))
 
         if not query:
             return "Semantic Scholar 搜索出错: missing required field `query`."
@@ -57,6 +61,12 @@ class SemanticScholarSearchTool(BaseTool):
         if sort_by not in self.SORT_MAPPING:
             sort_by = "relevance"
 
+        if year_filter is None:
+            return (
+                "Semantic Scholar 搜索出错: invalid `year`. "
+                "Use YYYY, YYYY-YYYY, YYYY-, or -YYYY."
+            )
+
         api_key = Settings.SEMANTIC_SCHOLAR_API_KEY
         if not api_key:
             return "Semantic Scholar 搜索出错: missing `SEMANTIC_SCHOLAR_API_KEY`."
@@ -69,13 +79,16 @@ class SemanticScholarSearchTool(BaseTool):
         mapped_sort = self.SORT_MAPPING.get(sort_by)
         if mapped_sort:
             params_dict["sort"] = mapped_sort
+        if year_filter:
+            params_dict["year"] = year_filter
 
         headers = {"Authorization": f"Bearer {api_key}"}
         logger.info(
-            "    [Tool] 正在访问 Semantic Scholar 搜索: %s (max: %s, sort: %s)...",
+            "    [Tool] 正在访问 Semantic Scholar 搜索: %s (max: %s, sort: %s, year: %s)...",
             query,
             max_results,
             sort_by,
+            year_filter or "any",
         )
 
         try:
@@ -146,6 +159,24 @@ class SemanticScholarSearchTool(BaseTool):
         )
         with urlopen(request, timeout=20) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    @staticmethod
+    def _normalize_year_filter(value) -> str | None:
+        if value is None:
+            return ""
+        if isinstance(value, int):
+            value = str(value)
+        value = str(value).strip()
+        if not value:
+            return ""
+        if re.fullmatch(r"\d{4}", value):
+            return value
+        if re.fullmatch(r"\d{4}-\d{4}", value):
+            start, end = value.split("-", 1)
+            return value if int(start) <= int(end) else None
+        if re.fullmatch(r"\d{4}-", value) or re.fullmatch(r"-\d{4}", value):
+            return value
+        return None
 
     @staticmethod
     def _format_request_error(exc: Exception) -> str:

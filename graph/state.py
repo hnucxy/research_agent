@@ -13,6 +13,7 @@ class AgentState(TypedDict):
 
     search_source: str  # 文献搜索使用的数据源名称
     semantic_sort_by: str  # Semantic Scholar 搜索结果的排序方式
+    semantic_year_filter: str  # Semantic Scholar 搜索结果的年份限制
 
     plan: List[str]  # Agent 生成的任务执行计划
     planned_tools: List[str]  # 计划中预计调用的工具名称列表

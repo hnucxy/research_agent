@@ -136,7 +136,11 @@ def _show_vectorization_notifications() -> None:
         notified_keys.append(notice_key)
 
 
-def render_search_settings(search_source: str, semantic_sort_by: str) -> tuple[str, str]:
+def render_search_settings(
+    search_source: str,
+    semantic_sort_by: str,
+    semantic_year_filter: str,
+) -> tuple[str, str, str]:
     with st.expander("搜索设置", expanded=True):
         source_options = {
             "arXiv API": "arxiv",
@@ -169,10 +173,17 @@ def render_search_settings(search_source: str, semantic_sort_by: str) -> tuple[s
             )
             semantic_sort_by = semantic_sort_options[selected_sort_label]
             st.session_state.semantic_sort_by = semantic_sort_by
+            semantic_year_filter = st.text_input(
+                "Semantic Scholar year filter",
+                value=semantic_year_filter,
+                placeholder="e.g. 2020-2024, 2024, 2021-, -2020",
+            ).strip()
+            st.session_state.semantic_year_filter = semantic_year_filter
         else:
             semantic_sort_by = st.session_state.get("semantic_sort_by", "relevance")
+            semantic_year_filter = st.session_state.get("semantic_year_filter", "")
 
-    return search_source, semantic_sort_by
+    return search_source, semantic_sort_by, semantic_year_filter
 
 
 def _handle_document_upload(chat_upload_dir: str):

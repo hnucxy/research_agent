@@ -7,6 +7,7 @@ def build_resource_context(
     selected_image_path: Optional[str] = None,
     search_source: Optional[str] = None,
     semantic_sort_by: Optional[str] = None,
+    semantic_year_filter: Optional[str] = None,
 ) -> str:
     blocks = []
 
@@ -16,6 +17,8 @@ def build_resource_context(
             search_lines.append(
                 f"- semantic_sort_by: {semantic_sort_by or 'relevance'}"
             )
+            if semantic_year_filter:
+                search_lines.append(f"- semantic_year_filter: {semantic_year_filter}")
             search_lines.append(
                 "- 约束: 外部论文检索时使用 `semantic_scholar_search`。"
             )

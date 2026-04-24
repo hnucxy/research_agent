@@ -1,19 +1,10 @@
-# 忽略所有环境变量配置文件
 .env
-.env.local
-.env.*.local
-
-# 特例：允许追踪 .env.example
 !.env.example
-
-# 忽略txt文件
 *.txt
-# 忽略json文件
 *.json
 
 *.png
 
-# 忽略 Python 缓存和虚拟环境
 __pycache__/
 *.py[cod]
 *$py.class
@@ -21,17 +12,13 @@ __pycache__/
 venv/
 ENV/
 
-# 忽略 IDE 配置
 .vscode/
 .idea/
 .VSCodeCounter/
 
-#忽略对话历史记录、上传文件目录
 chat_history/
 uploads/
-
 chroma_db/
 logs/
-
 *.md
 !README.md
