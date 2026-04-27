@@ -132,6 +132,7 @@ def handle_general_flow(
         semantic_year_filter=semantic_year_filter
         if st.session_state.current_function == "a"
         else None,
+        user_task=prompt,
     )
 
     initial_state = {

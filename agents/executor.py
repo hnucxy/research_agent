@@ -9,17 +9,13 @@ from config.logger import get_logger
 from config.settings import Settings
 from graph.state import AgentState
 from prompts.executor_prompts import TEXT_GENERATION_PROMPT, TOOL_EXTRACTION_PROMPT
-from tools.academic_writer_tool import AcademicWriterTool
-from tools.arxiv_tool import ArxivSearchTool
-from tools.literature_rag_tool import LiteratureRagTool
-from tools.literature_reader_tool import LiteratureReaderTool
-from tools.semantic_scholar_tool import SemanticScholarSearchTool
 from utils.exceptions import (
     ToolExecutionError,
     ToolExecutionTimeout,
     VectorDBConnectionError,
 )
 from utils.image_utils import encode_image_to_data_url, unique_existing_image_paths
+from utils.prompt_utils import extract_year_filter
 
 logger = get_logger()
 
@@ -27,13 +23,14 @@ logger = get_logger()
 class ExecutorNode:
     def __init__(self):
         self.llm = Settings.get_llm(temperature=0.1)
-        self.tools = {
-            "arxiv_search": ArxivSearchTool(),
-            "semantic_scholar_search": SemanticScholarSearchTool(),
-            "academic_write": AcademicWriterTool(),
-            "literature_read": LiteratureReaderTool(),
-            "literature_rag_search": LiteratureRagTool(),
+        self.tool_factories = {
+            "arxiv_search": self._make_arxiv_search,
+            "semantic_scholar_search": self._make_semantic_scholar_search,
+            "academic_write": self._make_academic_writer,
+            "literature_read": self._make_literature_reader,
+            "literature_rag_search": self._make_literature_rag,
         }
+        self.tools = {}
 
     def __call__(self, state: AgentState) -> dict:
         logger.info("--- [Executor] Node ---")
@@ -63,7 +60,7 @@ class ExecutorNode:
             if container:
                 container.markdown(f"### 从历史经验中提取到高价值结论\n\n{output}")
 
-        elif tool_name in self.tools:
+        elif tool_name in self.tool_factories:
             # 将评估反馈注入下一轮工具调用
             output, tool_state_update = self._run_registered_tool(
                 state=state,
@@ -110,7 +107,7 @@ class ExecutorNode:
         resource_context: str,
         feedback: str,
     ) -> tuple[str, dict]:
-        tool = self.tools[tool_name]
+        tool = self._get_tool(tool_name)
         logger.info("    准备调用工具: [%s]", tool_name)
 
         prompt_template = ChatPromptTemplate.from_template(TOOL_EXTRACTION_PROMPT)
@@ -154,10 +151,45 @@ class ExecutorNode:
 
         return output, state_update
 
+    def _get_tool(self, tool_name: str):
+        if tool_name not in self.tools:
+            self.tools[tool_name] = self.tool_factories[tool_name]()
+        return self.tools[tool_name]
+
+    @staticmethod
+    def _make_arxiv_search():
+        from tools.arxiv_tool import ArxivSearchTool
+
+        return ArxivSearchTool()
+
+    @staticmethod
+    def _make_semantic_scholar_search():
+        from tools.semantic_scholar_tool import SemanticScholarSearchTool
+
+        return SemanticScholarSearchTool()
+
+    @staticmethod
+    def _make_academic_writer():
+        from tools.academic_writer_tool import AcademicWriterTool
+
+        return AcademicWriterTool()
+
+    @staticmethod
+    def _make_literature_reader():
+        from tools.literature_reader_tool import LiteratureReaderTool
+
+        return LiteratureReaderTool()
+
+    @staticmethod
+    def _make_literature_rag():
+        from tools.literature_rag_tool import LiteratureRagTool
+
+        return LiteratureRagTool()
+
     def _apply_tool_runtime_defaults(
         self, tool_input: str, tool_name: str, state: AgentState
     ) -> str:
-        if tool_name != "semantic_scholar_search":
+        if tool_name not in {"arxiv_search", "semantic_scholar_search"}:
             return tool_input
 
         clean_input = tool_input.strip()
@@ -168,14 +200,37 @@ class ExecutorNode:
         except json.JSONDecodeError:
             return tool_input
 
+        user_year_filter = extract_year_filter(state.get("task_input", ""))
+        if tool_name == "arxiv_search":
+            if user_year_filter:
+                year_start, year_end = self._split_year_filter(user_year_filter)
+                args["year_start"] = year_start
+                args["year_end"] = year_end
+            else:
+                for key in ("year", "year_filter", "year_start", "year_end"):
+                    args.pop(key, None)
+            return json.dumps(args, ensure_ascii=False)
+
         if "sort_by" not in args and state.get("semantic_sort_by"):
             args["sort_by"] = state.get("semantic_sort_by")
 
-        has_model_year = bool(args.get("year") or args.get("year_filter"))
-        if not has_model_year and state.get("semantic_year_filter"):
+        if user_year_filter:
+            args["year"] = user_year_filter
+            args.pop("year_filter", None)
+        elif state.get("semantic_year_filter"):
             args["year"] = state.get("semantic_year_filter")
+            args.pop("year_filter", None)
+        else:
+            args.pop("year", None)
+            args.pop("year_filter", None)
 
         return json.dumps(args, ensure_ascii=False)
+
+    @staticmethod
+    def _split_year_filter(year_filter: str) -> tuple[str, str]:
+        if "-" in year_filter:
+            return tuple(year_filter.split("-", 1))
+        return year_filter, year_filter
 
     def _run_generate_step(
         self,

@@ -16,4 +16,6 @@ EVALUATOR_USER_PROMPT = """【历史对话】{chat_history}
 
 【当前步骤】{step}
 
+【前序执行上下文】{previous_context}
+
 【执行结果】{result}"""

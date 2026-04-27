@@ -20,5 +20,7 @@ chat_history/
 uploads/
 chroma_db/
 logs/
+experiment/
+experiment2/
 *.md
 !README.md

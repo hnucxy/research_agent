@@ -14,7 +14,7 @@ def encode_image(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode("utf-8")
 
-def test_multimodal_llm(image_path: str, prompt_text: str):
+def run_multimodal_llm(image_path: str, prompt_text: str):
     """
     单轮对话测试视觉大模型
     """
@@ -75,4 +75,4 @@ if __name__ == "__main__":
     if not os.path.exists(test_image_path):
         print(f"\n⚠️ 提示: 请在 '{current_dir}' 目录下放入一张名为 'test_image.png' 的图片。")
     else:
-        test_multimodal_llm(test_image_path, user_prompt)
+        run_multimodal_llm(test_image_path, user_prompt)

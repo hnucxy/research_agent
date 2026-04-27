@@ -57,25 +57,30 @@ class PlannerNode:
     def __call__(self, state: dict) -> dict:
         logger.info("")
         logger.info("--- [Planner] Node ---")
+        logger.info(f"用户输入: {state.get('task_input', '无')}")
 
         user_request = state.get("task_input", "")
         resource_context = state.get("resource_context", "无")
         current_func = state.get("current_function", "c")
         search_source = state.get("search_source", "arxiv")
 
-        historical_experience = self._retrieve_success_experience(
-            user_request=user_request,
-            current_func=current_func,
-            replan_count=state.get("replan_count", 0),
-        )
-        if isinstance(historical_experience, dict):
-            return historical_experience
+        if state.get("disable_memory"):
+            historical_experience = "无"
+            failure_warning_context = "无"
+        else:
+            historical_experience = self._retrieve_success_experience(
+                user_request=user_request,
+                current_func=current_func,
+                replan_count=state.get("replan_count", 0),
+            )
+            if isinstance(historical_experience, dict):
+                return historical_experience
 
-        failure_warning_context = self._retrieve_failure_warning_context(
-            user_request=user_request,
-            current_func=current_func,
-            search_source=search_source,
-        )
+            failure_warning_context = self._retrieve_failure_warning_context(
+                user_request=user_request,
+                current_func=current_func,
+                search_source=search_source,
+            )
 
         strategy_hint = self._build_strategy_hint(
             current_func=current_func,
@@ -96,9 +101,10 @@ class PlannerNode:
 
         if current_func == "a":
             mode_prompt_addon += (
-                "\n[时间约束] 规划外部论文检索时，必须保留用户口语化时间限制；"
-                "例如“近三年”“2025年”“近几年”要写进检索步骤描述，"
-                "便于执行器换算为工具年份参数。"
+                "\n[时间约束] 只有用户原始请求明确包含年份或时间范围时，"
+                "才可以在检索步骤中加入年份限制。若资源上下文显示 "
+                "`extracted_year_filter: none`，禁止自行默认添加“近几年”、"
+                "“近三年”或任何年份范围。"
             )
             if search_source == "semantic_scholar":
                 mode_prompt_addon += (

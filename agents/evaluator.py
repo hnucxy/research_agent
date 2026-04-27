@@ -52,6 +52,7 @@ class EvaluatorNode:
         chat_history = state.get("chat_history", "无历史")
         original_task = state.get("task_input", "无")
         resource_context = state.get("resource_context", "无")
+        previous_context = "\n\n".join(state.get("step_history", [])[:-1]) or "无"
 
         try:
             evaluation = chain.invoke(
@@ -60,6 +61,7 @@ class EvaluatorNode:
                     "original_task": original_task,
                     "resource_context": resource_context,
                     "step": current_step,
+                    "previous_context": previous_context,
                     "result": last_result,
                     "format_instructions": self.parser.get_format_instructions(),
                 }
@@ -81,7 +83,16 @@ class EvaluatorNode:
         logger.info("    [Feedback]: %s", evaluation.get("feedback"))
 
         current_retry = state.get("retry_count", 0) + 1
-        if not is_passed:
+        current_function = state.get("current_function", "")
+        allow_literature_memory = state.get("allow_literature_memory", False)
+        disable_memory = state.get("disable_memory", False)
+        # 原逻辑：if not is_passed:
+        # 对比实验：文献检索功能失败后也不写入失败经验库。
+        if (
+            not is_passed
+            and not disable_memory
+            and (current_function != "a" or allow_literature_memory)
+        ):
             # 失败结果写入失败经验库
             self._store_failure_memory(
                 state=state,
@@ -90,6 +101,8 @@ class EvaluatorNode:
                 evaluation=evaluation,
                 retry_count=current_retry,
             )
+        elif not is_passed and current_function == "a":
+            logger.info("    [Evaluator] 文献检索功能不写入失败经验库。")
 
         return {
             "evaluation_result": evaluation,

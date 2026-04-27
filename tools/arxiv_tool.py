@@ -73,6 +73,10 @@ class ArxivSearchTool(BaseTool):
                 max_results=max_results,
                 sort_by=sort_criterion,
             )
+            logger.info(
+                "    [Tool] arXiv request URL: %s",
+                client._format_url(search, 0, client.page_size),
+            )
 
             results = []
             for paper in client.results(search):

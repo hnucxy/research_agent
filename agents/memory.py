@@ -19,9 +19,25 @@ class MemoryNode:
         logger.info("--- [Memory] Node ---")
 
         eval_res = state.get("evaluation_result", {})
+        current_function = state.get("current_function", "")
+        allow_literature_memory = state.get("allow_literature_memory", False)
+        disable_memory = state.get("disable_memory", False)
         
         # [Memory Policy] 仅在 Evaluator 认为 Passed 后，才写入长期记忆
-        if eval_res.get("passed"):
+        # 原逻辑：if eval_res.get("passed"):
+        # 对比实验：文献检索功能使用后不写入长期记忆。
+        should_write_success_memory = (
+            eval_res.get("passed")
+            and not disable_memory
+            and (current_function != "a" or allow_literature_memory)
+        )
+        if (
+            eval_res.get("passed")
+            and current_function == "a"
+            and not allow_literature_memory
+        ):
+            logger.info("    [Memory] 文献检索功能不写入全局经验库。")
+        if should_write_success_memory:
             logger.info("Writing result to Long-term Memory (VectorDB)...")
             
             # 提取记忆所需的元素
