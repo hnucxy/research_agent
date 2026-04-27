@@ -23,7 +23,7 @@ class LiteratureReaderTool(BaseTool):
         # 阅读文献需要稍微高一点的理解力，temperature 设为 0.1
         self.llm = Settings.get_llm(temperature=0.1)
 
-    def run(self, params: str) -> str:
+    def run(self, params: str, config: dict | None = None) -> str:
         clean_params = params.strip()
         clean_params = re.sub(r"^```[a-zA-Z]*\n", "", clean_params)
         clean_params = re.sub(r"\n```$", "", clean_params)
@@ -52,10 +52,13 @@ class LiteratureReaderTool(BaseTool):
 
             prompt_template = ChatPromptTemplate.from_template(READING_PROMPT)
             chain = prompt_template | self.llm
-            stream_gen = chain.stream({
-                "document_content": doc_content,
-                "user_query": query
-            })
+            stream_gen = chain.stream(
+                {
+                    "document_content": doc_content,
+                    "user_query": query,
+                },
+                config=config,
+            )
             
             container = st.session_state.get("current_stream_container")
             output = ""

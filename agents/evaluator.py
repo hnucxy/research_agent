@@ -35,7 +35,7 @@ class EvaluatorNode:
         self.parser = JsonOutputParser(pydantic_object=EvaluationSchema)
         self.embeddings = Settings.get_embeddings()
 
-    def __call__(self, state: AgentState) -> dict:
+    def __call__(self, state: AgentState, config: dict | None = None) -> dict:
         logger.info("--- [Evaluator] Node ---")
 
         current_step = state["plan"][state["current_step_index"]]
@@ -64,7 +64,8 @@ class EvaluatorNode:
                     "previous_context": previous_context,
                     "result": last_result,
                     "format_instructions": self.parser.get_format_instructions(),
-                }
+                },
+                config=config,
             )
         except Exception as exc:
             logger.exception("[Error] Evaluator 解析失败: %s", exc)

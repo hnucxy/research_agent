@@ -3,7 +3,7 @@ import os
 import streamlit as st
 
 from ui.chat_flows import run_chat_turn
-from ui.chat_panels import (
+from ui.panels import (
     render_document_management_panel,
     render_memory_management_panel,
     render_search_settings,

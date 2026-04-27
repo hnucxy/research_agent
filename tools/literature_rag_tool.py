@@ -32,7 +32,7 @@ class LiteratureRagTool(BaseTool):
         self.embeddings = Settings.get_embeddings()
         self.last_retrieved_images = []
 
-    def run(self, params: str) -> str:
+    def run(self, params: str, config: dict | None = None) -> str:
         self.last_retrieved_images = []
 
         clean_params = params.strip()
@@ -119,7 +119,7 @@ class LiteratureRagTool(BaseTool):
 
         container = st.session_state.get("current_stream_container")
         output = ""
-        for chunk in self.llm.stream(messages):
+        for chunk in self.llm.stream(messages, config=config):
             content = chunk.content if hasattr(chunk, "content") else str(chunk)
             if content:
                 output += content

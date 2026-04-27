@@ -21,7 +21,7 @@ class AcademicWriterTool(BaseTool):
         # 学术写作需要稍微多一点的创造力，temperature可以比规划器(0.1)稍高，如0.3
         self.llm = Settings.get_llm(temperature=0.3, streaming=True)
 
-    def run(self, params: str) -> str:
+    def run(self, params: str, config: dict | None = None) -> str:
         clean_params = params.strip()
         clean_params = re.sub(r"^```[a-zA-Z]*\n", "", clean_params)
         clean_params = re.sub(r"\n```$", "", clean_params)
@@ -35,11 +35,14 @@ class AcademicWriterTool(BaseTool):
             # 直接使用导入的常量组装 prompt
             prompt_template = ChatPromptTemplate.from_template(ACADEMIC_WRITER_PROMPT)
             chain = prompt_template | self.llm
-            stream_gen = chain.stream({
-                "section": section,
-                "topic": topic,
-                "reference_context": reference_context
-            })
+            stream_gen = chain.stream(
+                {
+                    "section": section,
+                    "topic": topic,
+                    "reference_context": reference_context,
+                },
+                config=config,
+            )
             
             container = st.session_state.get("current_stream_container")
             output = ""

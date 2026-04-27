@@ -25,7 +25,7 @@ class InputParserNode:
         self.llm = Settings.get_llm(temperature=0.1)
         self.parser = JsonOutputParser(pydantic_object=InputParseSchema)
 
-    def __call__(self, state: ReviewerState) -> dict:
+    def __call__(self, state: ReviewerState, config: dict | None = None) -> dict:
         logger.info("--- [Input Parser] Node ---")
 
         if state.get("draft_content"):
@@ -54,7 +54,8 @@ class InputParserNode:
                 {
                     "input_text": state["user_prompt"],
                     "format_instructions": self.parser.get_format_instructions(),
-                }
+                },
+                config=config,
             )
             draft_content = parsed.get("draft_content", "")
             user_prompt = parsed.get("user_prompt", state["user_prompt"])
@@ -84,7 +85,7 @@ class ReviewerNode:
         self.llm = Settings.get_llm(temperature=0.1)
         self.parser = JsonOutputParser(pydantic_object=ReviewerSchema)
 
-    def __call__(self, state: ReviewerState) -> dict:
+    def __call__(self, state: ReviewerState, config: dict | None = None) -> dict:
         logger.info("--- [Reviewer] Node ---")
 
         system_prompt = """
@@ -128,7 +129,8 @@ class ReviewerNode:
                     "review_mode": state.get("review_mode", "relaxed"),
                     "review_focus": state.get("review_focus", ""),
                     "format_instructions": self.parser.get_format_instructions(),
-                }
+                },
+                config=config,
             )
         except Exception as exc:
             logger.error("Reviewer 解析失败: %s", exc)
@@ -158,7 +160,7 @@ class AuthorNode:
     def __init__(self):
         self.llm = Settings.get_llm(temperature=0.3, streaming=True)
 
-    def __call__(self, state: ReviewerState) -> dict:
+    def __call__(self, state: ReviewerState, config: dict | None = None) -> dict:
         logger.info("--- [Author] Node ---")
 
         system_prompt = """
@@ -200,7 +202,8 @@ class AuthorNode:
                 "task_intent": state.get("task_intent", "general_revision"),
                 "review_mode": state.get("review_mode", "relaxed"),
                 "review_focus": state.get("review_focus", ""),
-            }
+            },
+            config=config,
         ):
             content = chunk.content if hasattr(chunk, "content") else str(chunk)
             if not content:

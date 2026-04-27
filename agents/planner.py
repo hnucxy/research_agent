@@ -54,7 +54,7 @@ class PlannerNode:
         self.llm = Settings.get_llm(temperature=0.1)
         self.embeddings = Settings.get_embeddings()
 
-    def __call__(self, state: dict) -> dict:
+    def __call__(self, state: dict, config: dict | None = None) -> dict:
         logger.info("")
         logger.info("--- [Planner] Node ---")
         logger.info(f"用户输入: {state.get('task_input', '无')}")
@@ -153,7 +153,8 @@ class PlannerNode:
                     "strategy_hint": strategy_hint,
                     "step_history": step_history_str,
                     "format_instructions": parser.get_format_instructions(),
-                }
+                },
+                config=config,
             )
         except Exception as exc:
             logger.error("[Error] Planner JSON 解析失败: %s", exc)

@@ -36,7 +36,7 @@ class SemanticScholarSearchTool(BaseTool):
 
     FIELDS = "title,authors,year,citationCount,influentialCitationCount,url,abstract"
 
-    def run(self, params: str) -> str:
+    def run(self, params: str, config: dict | None = None) -> str:
         clean_params = params.strip()
         clean_params = re.sub(r"^```[a-zA-Z]*\n", "", clean_params)
         clean_params = re.sub(r"\n```$", "", clean_params)

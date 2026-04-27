@@ -32,7 +32,7 @@ class ExecutorNode:
         }
         self.tools = {}
 
-    def __call__(self, state: AgentState) -> dict:
+    def __call__(self, state: AgentState, config: dict | None = None) -> dict:
         logger.info("--- [Executor] Node ---")
 
         current_index = state["current_step_index"]
@@ -69,6 +69,7 @@ class ExecutorNode:
                 context_str=context_str,
                 resource_context=resource_context,
                 feedback=feedback,
+                config=config,
             )
             state_update.update(tool_state_update)
 
@@ -79,11 +80,16 @@ class ExecutorNode:
                 current_step=current_step,
                 context_str=context_str,
                 resource_context=resource_context,
+                config=config,
             )
 
         elif tool_name == "trigger_reviewer_loop":
             logger.info("    正在唤起 Reviewer 子图。")
-            output = self._run_reviewer_subgraph(state=state, current_step=current_step)
+            output = self._run_reviewer_subgraph(
+                state=state,
+                current_step=current_step,
+                config=config,
+            )
 
         else:
             logger.warning("    分配到了未知工具: %s", tool_name)
@@ -106,6 +112,7 @@ class ExecutorNode:
         context_str: str,
         resource_context: str,
         feedback: str,
+        config: dict | None = None,
     ) -> tuple[str, dict]:
         tool = self._get_tool(tool_name)
         logger.info("    准备调用工具: [%s]", tool_name)
@@ -122,14 +129,15 @@ class ExecutorNode:
                 "current_step": current_step,
                 "context": context_str,
                 "feedback": feedback,
-            }
+            },
+            config=config,
         )
         tool_input = query_res.content.strip()
         tool_input = self._apply_tool_runtime_defaults(tool_input, tool_name, state)
         logger.info("    大语言模型解析出的工具参数: [%s]", tool_input)
 
         try:
-            tool_result = tool.run(tool_input)
+            tool_result = tool.run(tool_input, config=config)
             output = f"【{tool_name} 执行结果】\n{tool_result}"
         except ToolExecutionTimeout as exc:
             logger.error("工具 %s 执行超时: %s", tool_name, exc)
@@ -238,6 +246,7 @@ class ExecutorNode:
         current_step: str,
         context_str: str,
         resource_context: str,
+        config: dict | None = None,
     ) -> str:
         stream_llm = Settings.get_llm(temperature=0.1, streaming=True)
         container = st.session_state.get("current_stream_container")
@@ -279,7 +288,7 @@ class ExecutorNode:
 
             messages = [HumanMessage(content=content_blocks)]
             try:
-                for chunk in stream_llm.stream(messages):
+                for chunk in stream_llm.stream(messages, config=config):
                     content = chunk.content if hasattr(chunk, "content") else str(chunk)
                     if not content:
                         continue
@@ -302,7 +311,8 @@ class ExecutorNode:
                     "resource_context": resource_context,
                     "current_step": current_step,
                     "context": context_str,
-                }
+                },
+                config=config,
             ):
                 content = chunk.content if hasattr(chunk, "content") else str(chunk)
                 if not content:
@@ -316,7 +326,12 @@ class ExecutorNode:
             output = f"【文本生成失败】{str(exc)}"
         return output
 
-    def _run_reviewer_subgraph(self, state: AgentState, current_step: str) -> str:
+    def _run_reviewer_subgraph(
+        self,
+        state: AgentState,
+        current_step: str,
+        config: dict | None = None,
+    ) -> str:
         from graph.graph_builder import build_reviewer_graph
 
         draft_content = self._extract_review_draft(state)
@@ -346,7 +361,7 @@ class ExecutorNode:
             "final_answer": "",
         }
 
-        final_state = build_reviewer_graph().invoke(reviewer_state)
+        final_state = build_reviewer_graph().invoke(reviewer_state, config=config)
         final_draft = final_state.get("draft_content", draft_content)
         reviewer_feedback = final_state.get("feedback", "")
         final_diff = final_state.get("final_diff_content", "")
